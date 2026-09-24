@@ -2,15 +2,14 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "./lib/supabase";
 
 type Business = {
   id: string;
   name: string;
-  googleReviewUrl: string;
-  createdAt: string;
+  google_review_url: string;
+  created_at: string;
 };
-
-const STORAGE_KEY = "nfc-review-businesses-v1";
 
 function validGoogleUrl(value: string) {
   try {
@@ -29,127 +28,181 @@ function validGoogleUrl(value: string) {
   }
 }
 
+function createBusinessId(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug + "-" + Math.random().toString(36).slice(2, 8);
+}
+
 export default function Home() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [name, setName] = useState("");
   const [reviewUrl, setReviewUrl] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [queryId, setQueryId] = useState("");
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-
-    if (saved) {
-      try {
-        setBusinesses(JSON.parse(saved));
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
+    const params = new URLSearchParams(window.location.search);
+    setQueryId(params.get("b") || "");
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(businesses));
-  }, [businesses]);
+    async function loadBusinesses() {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("businesses")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        setNotice("No se pudieron cargar los comercios.");
+      } else {
+        setBusinesses(data || []);
+      }
+
+      setLoading(false);
+    }
+
+    loadBusinesses();
+  }, []);
 
   const selected = useMemo(
     () => businesses.find((b) => b.id === selectedId),
     [businesses, selectedId]
   );
 
-  const landingUrl = selected
-    ? `${
-        typeof window !== "undefined"
-          ? window.location.origin
-          : ""
-      }/?b=${encodeURIComponent(selected.id)}`
-    : "";
+  const landing = useMemo(
+    () => businesses.find((b) => b.id === queryId),
+    [businesses, queryId]
+  );
 
-  function addBusiness(e: React.FormEvent) {
+  const landingUrl =
+    selected && typeof window !== "undefined"
+      ? `${window.location.origin}/?b=${encodeURIComponent(selected.id)}`
+      : "";
+
+  async function addBusiness(e: React.FormEvent) {
     e.preventDefault();
+
     setNotice("");
 
     if (!name.trim()) {
-      return setNotice("Ingresá el nombre del comercio.");
+      setNotice("Ingresá el nombre del comercio.");
+      return;
     }
 
     if (!validGoogleUrl(reviewUrl.trim())) {
-      return setNotice(
-        "Pegá un enlace HTTPS válido de reseñas de Google (por ejemplo, https://g.page/r/.../review)."
+      setNotice(
+        "Pegá un enlace HTTPS válido de reseñas de Google. Por ejemplo: https://g.page/r/.../review"
       );
+      return;
     }
 
-    const id =
-      name
-        .trim()
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "") +
-      "-" +
-      Math.random().toString(36).slice(2, 7);
+    const id = createBusinessId(name);
 
-    const business: Business = {
+    const newBusiness = {
       id,
       name: name.trim(),
-      googleReviewUrl: reviewUrl.trim(),
-      createdAt: new Date().toISOString(),
+      google_review_url: reviewUrl.trim(),
     };
 
-    setBusinesses((prev) => [business, ...prev]);
-    setSelectedId(id);
+    const { data, error } = await supabase
+      .from("businesses")
+      .insert(newBusiness)
+      .select()
+      .single();
+
+    if (error) {
+      console.error(error);
+      setNotice(
+        "No se pudo registrar el comercio. Revisá la conexión con Supabase."
+      );
+      return;
+    }
+
+    setBusinesses((prev) => [data, ...prev]);
+    setSelectedId(data.id);
+
     setName("");
     setReviewUrl("");
 
-    setNotice(
-      "Comercio registrado en este navegador. El QR ya está listo."
-    );
+    setNotice("Comercio registrado correctamente en Supabase.");
   }
 
-  function copy(text: string) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => setNotice("Enlace copiado."))
-      .catch(() =>
-        setNotice(
-          "No se pudo copiar automáticamente; seleccioná y copiá el enlace."
-        )
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice("Enlace copiado.");
+    } catch {
+      setNotice(
+        "No se pudo copiar automáticamente; seleccioná y copiá el enlace."
       );
+    }
   }
 
-  // Landing mode: ?b=business-id
-  const [queryId, setQueryId] = useState("");
+  function downloadQR() {
+    const svg = document.getElementById("resenatap-qr");
 
-  useEffect(() => {
-    setQueryId(
-      new URLSearchParams(window.location.search).get("b") || ""
-    );
-  }, []);
+    if (!svg) return;
 
-  const landing = businesses.find((b) => b.id === queryId);
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+
+    const url = URL.createObjectURL(svgBlob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `${selected?.name || "resenatap"}-qr.svg`;
+    link.click();
+
+    URL.revokeObjectURL(url);
+  }
 
   if (queryId) {
+    if (loading) {
+      return (
+        <main className="landing">
+          <section className="reviewCard">
+            <div className="mark">NFC</div>
+            <p className="eyebrow">RESEÑATAP</p>
+            <h1>Cargando...</h1>
+            <p className="sub">
+              Estamos buscando el comercio.
+            </p>
+          </section>
+        </main>
+      );
+    }
+
     return (
       <main className="landing">
         {landing ? (
           <section className="reviewCard">
             <div className="mark">★</div>
 
-            <p className="eyebrow">
-              TU OPINIÓN NOS IMPORTA
-            </p>
+            <p className="eyebrow">TU OPINIÓN NOS IMPORTA</p>
 
             <h1>{landing.name}</h1>
 
             <p className="sub">
-              ¿Cómo fue tu experiencia? Compartí tu opinión
-              en Google.
+              ¿Cómo fue tu experiencia? Compartí tu opinión en Google.
             </p>
 
             <a
               className="googleButton"
-              href={landing.googleReviewUrl}
+              href={landing.google_review_url}
               target="_blank"
               rel="noreferrer"
             >
@@ -157,9 +210,8 @@ export default function Home() {
             </a>
 
             <p className="fine">
-              Se abrirá Google para que escribas y publiques
-              tu reseña. Tu opinión la gestionás directamente
-              con Google.
+              Se abrirá Google para que escribas y publiques tu reseña.
+              Tu opinión la gestionás directamente con Google.
             </p>
           </section>
         ) : (
@@ -169,10 +221,7 @@ export default function Home() {
             <h1>Comercio no encontrado</h1>
 
             <p className="sub">
-              Este enlace no está registrado en este
-              navegador. Para una versión pública, necesitás
-              guardar los comercios en una base de datos
-              online.
+              El enlace existe, pero este comercio no está registrado.
             </p>
 
             <a href="/" className="backLink">
@@ -191,7 +240,7 @@ export default function Home() {
           <span className="brandIcon">N</span>
 
           <span>
-            ReseñaTap <small>MVP local</small>
+            ReseñaTap <small>MVP</small>
           </span>
         </div>
 
@@ -208,8 +257,8 @@ export default function Home() {
         </h1>
 
         <p className="sub">
-          Registrá el negocio y generá un enlace único para
-          grabar en la tarjeta NFC y convertir en QR.
+          Registrá el negocio y generá un enlace único para grabar
+          en la tarjeta NFC y convertir en QR.
         </p>
       </section>
 
@@ -225,9 +274,7 @@ export default function Home() {
             placeholder="Ej. Restaurante El Sol"
           />
 
-          <label>
-            Enlace directo de reseñas de Google
-          </label>
+          <label>Enlace directo de reseñas de Google</label>
 
           <textarea
             value={reviewUrl}
@@ -237,29 +284,28 @@ export default function Home() {
           />
 
           <p className="hint">
-            En Perfil de Empresa de Google, buscá la opción
-            para pedir reseñas y copiá el enlace para
-            compartir.
+            En Perfil de Empresa de Google, buscá la opción para
+            pedir reseñas y copiá el enlace para compartir.
           </p>
 
           <button className="primary" type="submit">
-            Registrar y generar QR
+            Registrar y generar enlace
           </button>
 
-          {notice && (
-            <p className="notice">{notice}</p>
-          )}
+          {notice && <p className="notice">{notice}</p>}
         </form>
 
         <section className="panel">
           <h2>
             Comercios registrados{" "}
-            <span className="count">
-              {businesses.length}
-            </span>
+            <span className="count">{businesses.length}</span>
           </h2>
 
-          {businesses.length === 0 ? (
+          {loading ? (
+            <div className="empty">
+              Cargando comercios...
+            </div>
+          ) : businesses.length === 0 ? (
             <div className="empty">
               Todavía no registraste comercios.
               <br />
@@ -277,7 +323,6 @@ export default function Home() {
                   onClick={() => setSelectedId(b.id)}
                 >
                   <strong>{b.name}</strong>
-
                   <span>{b.id}</span>
                 </button>
               ))}
@@ -289,34 +334,34 @@ export default function Home() {
       {selected && (
         <section className="panel output">
           <div>
-            <p className="eyebrow">
-              ENLACE PARA ESTA TARJETA
-            </p>
+            <p className="eyebrow">MATERIAL PARA EL COMERCIO</p>
 
             <h2>{selected.name}</h2>
 
             <p className="hint">
-              Este enlace es el que grabarías en el chip NFC
-              y que utiliza el QR de ResenaTap.
+              Este enlace es el que podés grabar en el chip NFC
+              y también es el destino del QR.
             </p>
           </div>
 
           <div className="qrSection">
             <div className="qrBox">
               <QRCodeSVG
+                id="resenatap-qr"
                 value={landingUrl}
-                size={220}
+                size={240}
                 level="H"
                 includeMargin
               />
             </div>
 
             <div className="qrInfo">
-              <h3>QR de ResenaTap</h3>
+              <h3>QR de ReseñaTap</h3>
 
               <p>
-                Este QR lleva directamente a la página de tu
-                comercio en ResenaTap.
+                Escaneando este QR, el cliente entra a la página
+                de {selected.name} y desde ahí puede dejar su reseña
+                en Google.
               </p>
 
               <div className="urlBox">
@@ -331,11 +376,16 @@ export default function Home() {
                   Copiar enlace
                 </button>
 
+                <button
+                  className="secondary"
+                  onClick={downloadQR}
+                >
+                  Descargar QR
+                </button>
+
                 <a
                   className="secondary"
-                  href={`/?b=${encodeURIComponent(
-                    selected.id
-                  )}`}
+                  href={`/?b=${encodeURIComponent(selected.id)}`}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -346,19 +396,17 @@ export default function Home() {
           </div>
 
           <p className="warning">
-            <strong>Importante:</strong> esta versión guarda
-            datos solo en el navegador (localStorage). Para
-            que los clientes abran el enlace desde sus
-            propios teléfonos, después hay que desplegar la
-            web y conectar una base de datos online, por
-            ejemplo Supabase.
+            <strong>Importante:</strong>{" "}
+            el QR apunta a ReseñaTap, no directamente a Google.
+            Esto permite que en el futuro podamos cambiar el destino
+            sin tener que volver a imprimir el QR o reprogramar el NFC.
           </p>
         </section>
       )}
 
       <footer>
-        Prototipo de desarrollo · No publica reseñas
-        automáticamente en Google.
+        Prototipo de desarrollo · No publica reseñas automáticamente
+        en Google.
       </footer>
     </main>
   );
