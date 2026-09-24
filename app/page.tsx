@@ -17,11 +17,9 @@ function validGoogleUrl(value: string) {
 
     return (
       url.protocol === "https:" &&
-      (
-        url.hostname === "g.page" ||
+      (url.hostname === "g.page" ||
         url.hostname.endsWith("google.com") ||
-        url.hostname.endsWith("googleusercontent.com")
-      )
+        url.hostname.endsWith("googleusercontent.com"))
     );
   } catch {
     return false;
@@ -47,13 +45,47 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
-  const [queryId, setQueryId] = useState("");
 
+  const [queryId, setQueryId] = useState("");
+  const [publicBusiness, setPublicBusiness] = useState<Business | null>(
+    null
+  );
+  const [publicLoading, setPublicLoading] = useState(false);
+
+  // Detectar si estamos entrando a la página pública de un comercio
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setQueryId(params.get("b") || "");
+    const id = params.get("b") || "";
+
+    setQueryId(id);
+
+    if (!id) {
+      return;
+    }
+
+    async function loadPublicBusiness() {
+      setPublicLoading(true);
+
+      const { data, error } = await supabase
+        .from("businesses")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        console.error("Error cargando comercio público:", error);
+        setPublicBusiness(null);
+      } else {
+        setPublicBusiness(data);
+      }
+
+      setPublicLoading(false);
+    }
+
+    loadPublicBusiness();
   }, []);
 
+  // Cargar comercios para el administrador
   useEffect(() => {
     async function loadBusinesses() {
       setLoading(true);
@@ -77,13 +109,8 @@ export default function Home() {
   }, []);
 
   const selected = useMemo(
-    () => businesses.find((b) => b.id === selectedId),
+    () => businesses.find((business) => business.id === selectedId),
     [businesses, selectedId]
-  );
-
-  const landing = useMemo(
-    () => businesses.find((b) => b.id === queryId),
-    [businesses, queryId]
   );
 
   const landingUrl =
@@ -130,7 +157,7 @@ export default function Home() {
       return;
     }
 
-    setBusinesses((prev) => [data, ...prev]);
+    setBusinesses((previous) => [data, ...previous]);
     setSelectedId(data.id);
 
     setName("");
@@ -153,31 +180,44 @@ export default function Home() {
   function downloadQR() {
     const svg = document.getElementById("resenatap-qr");
 
-    if (!svg) return;
+    if (!svg || !selected) {
+      return;
+    }
 
     const svgData = new XMLSerializer().serializeToString(svg);
-    const svgBlob = new Blob([svgData], {
+
+    const blob = new Blob([svgData], {
       type: "image/svg+xml;charset=utf-8",
     });
 
-    const url = URL.createObjectURL(svgBlob);
-    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
 
+    const link = document.createElement("a");
     link.href = url;
-    link.download = `${selected?.name || "resenatap"}-qr.svg`;
+    link.download = `${selected.name}-qr.svg`;
+
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
 
     URL.revokeObjectURL(url);
   }
 
+  // ---------------------------------------------------------
+  // PÁGINA PÚBLICA
+  // ---------------------------------------------------------
+
   if (queryId) {
-    if (loading) {
+    if (publicLoading) {
       return (
         <main className="landing">
           <section className="reviewCard">
             <div className="mark">NFC</div>
+
             <p className="eyebrow">RESEÑATAP</p>
+
             <h1>Cargando...</h1>
+
             <p className="sub">
               Estamos buscando el comercio.
             </p>
@@ -186,52 +226,62 @@ export default function Home() {
       );
     }
 
-    return (
-      <main className="landing">
-        {landing ? (
-          <section className="reviewCard">
-            <div className="mark">★</div>
-
-            <p className="eyebrow">TU OPINIÓN NOS IMPORTA</p>
-
-            <h1>{landing.name}</h1>
-
-            <p className="sub">
-              ¿Cómo fue tu experiencia? Compartí tu opinión en Google.
-            </p>
-
-            <a
-              className="googleButton"
-              href={landing.google_review_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              ★ &nbsp; Dejar reseña en Google
-            </a>
-
-            <p className="fine">
-              Se abrirá Google para que escribas y publiques tu reseña.
-              Tu opinión la gestionás directamente con Google.
-            </p>
-          </section>
-        ) : (
+    if (!publicBusiness) {
+      return (
+        <main className="landing">
           <section className="reviewCard">
             <div className="mark">NFC</div>
+
+            <p className="eyebrow">RESEÑATAP</p>
 
             <h1>Comercio no encontrado</h1>
 
             <p className="sub">
-              El enlace existe, pero este comercio no está registrado.
+              No encontramos este comercio en ReseñaTap.
             </p>
 
             <a href="/" className="backLink">
               Volver al administrador
             </a>
           </section>
-        )}
+        </main>
+      );
+    }
+
+    return (
+      <main className="landing">
+        <section className="reviewCard">
+          <div className="mark">★</div>
+
+          <p className="eyebrow">TU OPINIÓN NOS IMPORTA</p>
+
+          <h1>{publicBusiness.name}</h1>
+
+          <p className="sub">
+            ¿Cómo fue tu experiencia? Compartí tu opinión en Google.
+          </p>
+
+          <a
+            className="googleButton"
+            href={publicBusiness.google_review_url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            ★ &nbsp; Dejar reseña en Google
+          </a>
+
+          <p className="fine">
+            Se abrirá Google para que escribas y publiques tu reseña. Tu
+            opinión la gestionás directamente con Google.
+          </p>
+        </section>
       </main>
     );
   }
+
+  // ---------------------------------------------------------
+  // ADMINISTRADOR
+  // ---------------------------------------------------------
 
   return (
     <main className="admin">
@@ -257,8 +307,8 @@ export default function Home() {
         </h1>
 
         <p className="sub">
-          Registrá el negocio y generá un enlace único para grabar
-          en la tarjeta NFC y convertir en QR.
+          Registrá el negocio y generá un enlace único para grabar en la
+          tarjeta NFC y convertir en QR.
         </p>
       </section>
 
@@ -284,8 +334,8 @@ export default function Home() {
           />
 
           <p className="hint">
-            En Perfil de Empresa de Google, buscá la opción para
-            pedir reseñas y copiá el enlace para compartir.
+            En Perfil de Empresa de Google, buscá la opción para pedir
+            reseñas y copiá el enlace para compartir.
           </p>
 
           <button className="primary" type="submit">
@@ -302,9 +352,7 @@ export default function Home() {
           </h2>
 
           {loading ? (
-            <div className="empty">
-              Cargando comercios...
-            </div>
+            <div className="empty">Cargando comercios...</div>
           ) : businesses.length === 0 ? (
             <div className="empty">
               Todavía no registraste comercios.
@@ -313,17 +361,17 @@ export default function Home() {
             </div>
           ) : (
             <div className="businessList">
-              {businesses.map((b) => (
+              {businesses.map((business) => (
                 <button
                   type="button"
-                  key={b.id}
+                  key={business.id}
                   className={`business ${
-                    selectedId === b.id ? "active" : ""
+                    selectedId === business.id ? "active" : ""
                   }`}
-                  onClick={() => setSelectedId(b.id)}
+                  onClick={() => setSelectedId(business.id)}
                 >
-                  <strong>{b.name}</strong>
-                  <span>{b.id}</span>
+                  <strong>{business.name}</strong>
+                  <span>{business.id}</span>
                 </button>
               ))}
             </div>
@@ -339,8 +387,8 @@ export default function Home() {
             <h2>{selected.name}</h2>
 
             <p className="hint">
-              Este enlace es el que podés grabar en el chip NFC
-              y también es el destino del QR.
+              Este enlace es el que podés grabar en el chip NFC y también es
+              el destino del QR.
             </p>
           </div>
 
@@ -359,14 +407,11 @@ export default function Home() {
               <h3>QR de ReseñaTap</h3>
 
               <p>
-                Escaneando este QR, el cliente entra a la página
-                de {selected.name} y desde ahí puede dejar su reseña
-                en Google.
+                Escaneando este QR, el cliente entra a la página de{" "}
+                {selected.name} y desde ahí puede dejar su reseña en Google.
               </p>
 
-              <div className="urlBox">
-                {landingUrl}
-              </div>
+              <div className="urlBox">{landingUrl}</div>
 
               <div className="actions">
                 <button
@@ -376,10 +421,7 @@ export default function Home() {
                   Copiar enlace
                 </button>
 
-                <button
-                  className="secondary"
-                  onClick={downloadQR}
-                >
+                <button className="secondary" onClick={downloadQR}>
                   Descargar QR
                 </button>
 
@@ -396,17 +438,17 @@ export default function Home() {
           </div>
 
           <p className="warning">
-            <strong>Importante:</strong>{" "}
-            el QR apunta a ReseñaTap, no directamente a Google.
-            Esto permite que en el futuro podamos cambiar el destino
-            sin tener que volver a imprimir el QR o reprogramar el NFC.
+            <strong>Importante:</strong> el QR apunta a ReseñaTap, no
+            directamente a Google. Esto permite cambiar el destino de Google
+            en el futuro sin tener que volver a imprimir el QR o reprogramar
+            el NFC.
           </p>
         </section>
       )}
 
       <footer>
-        Prototipo de desarrollo · No publica reseñas automáticamente
-        en Google.
+        Prototipo de desarrollo · No publica reseñas automáticamente en
+        Google.
       </footer>
     </main>
   );
