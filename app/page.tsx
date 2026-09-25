@@ -702,7 +702,7 @@ export default function HomePage() {
       <main className="login-page">
         <div className="login-card">
           <div className="brand login-brand">
-            <div className="brand-icon">N</div>
+            <div className="brand-icon">RT</div>
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
@@ -1073,7 +1073,7 @@ export default function HomePage() {
       <div className="page-container">
         <header className="topbar">
           <div className="brand">
-            <div className="brand-icon">N</div>
+            <div className="brand-icon">RT</div>
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
