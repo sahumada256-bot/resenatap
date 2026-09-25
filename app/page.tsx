@@ -10,7 +10,6 @@ import { supabase } from "./lib/supabase";
 
 const ADMIN_USERNAME = "admin";
 const ADMIN_PASSWORD = "RiverPlate10$";
-
 const LOGIN_STORAGE_KEY = "resenatap_admin_logged_in";
 
 // ======================================================
@@ -44,7 +43,6 @@ function createBusinessId(name: string) {
     .slice(0, 35);
 
   const suffix = Math.random().toString(36).slice(2, 8);
-
   return `${slug || "comercio"}-${suffix}`;
 }
 
@@ -80,10 +78,10 @@ export default function HomePage() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isCheckingLogin, setIsCheckingLogin] = useState(true);
-
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // ====================================================
   // ADMIN
@@ -91,16 +89,12 @@ export default function HomePage() {
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
   const [businessName, setBusinessName] = useState("");
   const [googleReviewUrl, setGoogleReviewUrl] = useState("");
-
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -111,11 +105,9 @@ export default function HomePage() {
   const [publicBusinessId, setPublicBusinessId] = useState<string | null>(
     null
   );
-
   const [publicBusiness, setPublicBusiness] = useState<Business | null>(null);
   const [publicLoading, setPublicLoading] = useState(false);
   const [publicError, setPublicError] = useState("");
-
   const isPublicPage = publicBusinessId !== null;
 
   // ====================================================
@@ -174,10 +166,6 @@ export default function HomePage() {
     const params = new URLSearchParams(window.location.search);
     const businessId = params.get("b");
 
-    // --------------------------------------------
-    // PÁGINA PÚBLICA
-    // --------------------------------------------
-
     if (businessId) {
       setPublicBusinessId(businessId);
       setPublicLoading(true);
@@ -202,13 +190,8 @@ export default function HomePage() {
       };
 
       void loadPublicBusiness();
-
       return;
     }
-
-    // --------------------------------------------
-    // ADMIN
-    // --------------------------------------------
 
     const loggedIn =
       sessionStorage.getItem(LOGIN_STORAGE_KEY) === "true";
@@ -240,7 +223,6 @@ export default function HomePage() {
       setErrorMessage(
         "No pudimos cargar los comercios. Probá nuevamente."
       );
-
       setBusinesses([]);
     } else {
       setBusinesses((data ?? []) as Business[]);
@@ -255,7 +237,6 @@ export default function HomePage() {
 
   function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setLoginError("");
 
     const username = loginUsername.trim();
@@ -265,14 +246,11 @@ export default function HomePage() {
       loginPassword === ADMIN_PASSWORD
     ) {
       sessionStorage.setItem(LOGIN_STORAGE_KEY, "true");
-
       setIsLoggedIn(true);
-
       setLoginUsername("");
       setLoginPassword("");
-
+      setShowPassword(false);
       void loadBusinesses();
-
       return;
     }
 
@@ -285,18 +263,13 @@ export default function HomePage() {
 
   function handleLogout() {
     sessionStorage.removeItem(LOGIN_STORAGE_KEY);
-
     setIsLoggedIn(false);
-
     setSelectedId(null);
     setBusinesses([]);
-
     setBusinessName("");
     setGoogleReviewUrl("");
-
     setSearchTerm("");
     setCurrentPage(1);
-
     setErrorMessage("");
     setSuccessMessage("");
   }
@@ -346,9 +319,7 @@ export default function HomePage() {
       setErrorMessage(
         "No pudimos registrar el comercio. Revisá los datos e intentá otra vez."
       );
-
       setIsSaving(false);
-
       return;
     }
 
@@ -360,10 +331,8 @@ export default function HomePage() {
     ]);
 
     setSelectedId(createdBusiness.id);
-
     setBusinessName("");
     setGoogleReviewUrl("");
-
     setSearchTerm("");
     setCurrentPage(1);
 
@@ -393,16 +362,13 @@ export default function HomePage() {
     });
 
     const downloadUrl = URL.createObjectURL(blob);
-
     const link = document.createElement("a");
 
     link.href = downloadUrl;
     link.download = `resenatap-${selectedBusiness.id}.svg`;
 
     document.body.appendChild(link);
-
     link.click();
-
     document.body.removeChild(link);
 
     URL.revokeObjectURL(downloadUrl);
@@ -444,7 +410,6 @@ export default function HomePage() {
         <div className="public-card">
           <div className="brand public-brand">
             <div className="brand-icon">N</div>
-
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
@@ -453,13 +418,11 @@ export default function HomePage() {
           {publicLoading ? (
             <div className="public-message">
               <div className="spinner" />
-
               <p>Cargando comercio...</p>
             </div>
           ) : publicError || !publicBusiness ? (
             <div className="public-message">
               <h1>Enlace no disponible</h1>
-
               <p>
                 {publicError ||
                   "No encontramos este comercio."}
@@ -489,7 +452,6 @@ export default function HomePage() {
                 rel="noopener noreferrer"
               >
                 Dejar reseña en Google
-
                 <span aria-hidden="true">↗</span>
               </a>
 
@@ -741,7 +703,6 @@ export default function HomePage() {
         <div className="login-card">
           <div className="brand login-brand">
             <div className="brand-icon">N</div>
-
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
@@ -782,17 +743,92 @@ export default function HomePage() {
               Contraseña
             </label>
 
-            <input
-              id="login-password"
-              type="password"
-              placeholder="Ingresá tu contraseña"
-              value={loginPassword}
-              onChange={(event) =>
-                setLoginPassword(event.target.value)
-              }
-              autoComplete="current-password"
-              required
-            />
+            <div className="password-field">
+              <input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Ingresá tu contraseña"
+                value={loginPassword}
+                onChange={(event) =>
+                  setLoginPassword(event.target.value)
+                }
+                autoComplete="current-password"
+                required
+              />
+
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() =>
+                  setShowPassword((value) => !value)
+                }
+                aria-label={
+                  showPassword
+                    ? "Ocultar contraseña"
+                    : "Mostrar contraseña"
+                }
+                title={
+                  showPassword
+                    ? "Ocultar contraseña"
+                    : "Mostrar contraseña"
+                }
+              >
+                {showPassword ? (
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 3L21 21"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M10.58 10.58A2 2 0 0 0 13.42 13.42"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M9.88 4.24A10.94 10.94 0 0 1 12 4c5 0 8.5 4 9.5 6-.38.76-1.27 2.12-2.67 3.34M6.61 6.61C4.84 7.75 3.6 9.4 2.5 12c1 2 4.5 6 9.5 6 1.05 0 2.02-.18 2.9-.49"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="2.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
 
             {loginError && (
               <p className="login-error">
@@ -943,6 +979,43 @@ export default function HomePage() {
             color: #9aa5b4;
           }
 
+          .password-field {
+            position: relative;
+            width: 100%;
+          }
+
+          .password-field input {
+            padding-right: 48px;
+          }
+
+          .password-toggle {
+            position: absolute;
+            top: 23px;
+            right: 10px;
+            display: grid;
+            width: 30px;
+            height: 30px;
+            place-items: center;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #728097;
+            font-size: 17px;
+            line-height: 1;
+            transform: translateY(-50%);
+            cursor: pointer;
+          }
+
+          .password-toggle:hover {
+            background: #f4f7fb;
+            color: #172033;
+          }
+
+          .password-toggle:focus-visible {
+            outline: 2px solid #16804c;
+            outline-offset: 1px;
+          }
+
           .login-error {
             margin: -2px 0 13px;
             color: #b42318;
@@ -1001,7 +1074,6 @@ export default function HomePage() {
         <header className="topbar">
           <div className="brand">
             <div className="brand-icon">N</div>
-
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
