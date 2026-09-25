@@ -409,7 +409,7 @@ export default function HomePage() {
       <main className="public-page">
         <div className="public-card">
           <div className="brand public-brand">
-            <div className="brand-icon">N</div>
+            <div className="brand-icon">RT</div>
             <span>
               Reseña<span className="brand-blue">Tap</span>
             </span>
