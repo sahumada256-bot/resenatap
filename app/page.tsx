@@ -9,7 +9,7 @@ import { supabase } from "./lib/supabase";
 // ======================================================
 
 const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "1234";
+const ADMIN_PASSWORD = "RiverPlate10$";
 
 const LOGIN_STORAGE_KEY = "resenatap_admin_logged_in";
 
