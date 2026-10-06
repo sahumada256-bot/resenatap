@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Keep Supabase active
         run: |
-          curl -sS \
+          curl -fsS \
             -X GET \
             "${{ secrets.SUPABASE_URL }}/rest/v1/businesses?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
