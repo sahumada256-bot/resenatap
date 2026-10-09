@@ -5,12 +5,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 // ======================================================
-// LOGIN - EDITÁ ESTOS DATOS
+// ADMINISTRADOR AUTORIZADO EN SUPABASE AUTH
 // ======================================================
 
-const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "RiverPlate10$";
-const LOGIN_STORAGE_KEY = "resenatap_admin_logged_in";
+const ADMIN_USER_IDS = [
+  "58c729b8-1a34-4c2a-8e9a-4527d9fb332c", // Sebastián
+  "329513cb-727b-48e8-ab87-34106c13503e", // Miguel
+];
 
 // ======================================================
 // CONFIGURACIÓN
@@ -78,10 +79,11 @@ export default function HomePage() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isCheckingLogin, setIsCheckingLogin] = useState(true);
-  const [loginUsername, setLoginUsername] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // ====================================================
   // ADMIN
@@ -98,10 +100,10 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
+  const [isDeletingBusiness, setIsDeletingBusiness] = useState(false);
   const [isEditingBusiness, setIsEditingBusiness] = useState(false);
   const [editBusinessName, setEditBusinessName] = useState("");
   const [editGoogleReviewUrl, setEditGoogleReviewUrl] = useState("");
-  const [isDeletingBusiness, setIsDeletingBusiness] = useState(false);
   const [managementError, setManagementError] = useState("");
   const [managementSuccess, setManagementSuccess] = useState("");
 
@@ -200,17 +202,57 @@ export default function HomePage() {
       return;
     }
 
-    const loggedIn =
-      sessionStorage.getItem(LOGIN_STORAGE_KEY) === "true";
+    let isMounted = true;
 
-    setIsLoggedIn(loggedIn);
-    setIsCheckingLogin(false);
+    const checkSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      const isAdmin = !error && !!user?.id && ADMIN_USER_IDS.includes(user.id);
 
-    if (loggedIn) {
-      void loadBusinesses();
-    } else {
-      setIsLoading(false);
-    }
+      if (isAdmin) {
+        if (isMounted) {
+          setIsLoggedIn(true);
+          setIsCheckingLogin(false);
+          void loadBusinesses();
+        }
+        return;
+      }
+
+      // Una sesión de otro usuario no debe abrir el panel de administración.
+      if (user) {
+        await supabase.auth.signOut();
+      }
+
+      if (isMounted) {
+        setIsLoggedIn(false);
+        setIsCheckingLogin(false);
+        setIsLoading(false);
+      }
+    };
+
+    void checkSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        const user = session?.user;
+        const isAdmin = !!user?.id && ADMIN_USER_IDS.includes(user.id);
+
+        if (isAdmin) {
+          setIsLoggedIn(true);
+          void loadBusinesses();
+        } else {
+          setIsLoggedIn(false);
+          setBusinesses([]);
+          setIsLoading(false);
+        }
+        setIsCheckingLogin(false);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   // ====================================================
@@ -242,34 +284,42 @@ export default function HomePage() {
   // LOGIN
   // ====================================================
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginError("");
+    setIsLoggingIn(true);
 
-    const username = loginUsername.trim();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: loginEmail.trim(),
+      password: loginPassword,
+    });
 
-    if (
-      username === ADMIN_USERNAME &&
-      loginPassword === ADMIN_PASSWORD
-    ) {
-      sessionStorage.setItem(LOGIN_STORAGE_KEY, "true");
-      setIsLoggedIn(true);
-      setLoginUsername("");
-      setLoginPassword("");
-      setShowPassword(false);
-      void loadBusinesses();
+    if (error || !data.user) {
+      setLoginError("Correo o contraseña incorrectos.");
+      setIsLoggingIn(false);
       return;
     }
 
-    setLoginError("Usuario o contraseña incorrectos.");
+    if (!ADMIN_USER_IDS.includes(data.user.id)) {
+      await supabase.auth.signOut();
+      setLoginError("Esta cuenta no tiene permisos de administrador.");
+      setIsLoggingIn(false);
+      return;
+    }
+
+    setIsLoggedIn(true);
+    setLoginEmail("");
+    setLoginPassword("");
+    setShowPassword(false);
+    setIsLoggingIn(false);
   }
 
   // ====================================================
   // LOGOUT
   // ====================================================
 
-  function handleLogout() {
-    sessionStorage.removeItem(LOGIN_STORAGE_KEY);
+  async function handleLogout() {
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     setSelectedId(null);
     setBusinesses([]);
@@ -432,10 +482,10 @@ export default function HomePage() {
 
   async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedBusiness || isSaving) return;
+
     setManagementError("");
     setManagementSuccess("");
-
-    if (!selectedBusiness) return;
 
     const cleanName = editBusinessName.trim();
     const cleanUrl = editGoogleReviewUrl.trim();
@@ -451,7 +501,6 @@ export default function HomePage() {
     }
 
     setIsSaving(true);
-
     const { data, error } = await supabase
       .from("businesses")
       .update({ name: cleanName, google_review_url: cleanUrl })
@@ -460,7 +509,9 @@ export default function HomePage() {
       .single();
 
     if (error || !data) {
-      setManagementError("No pudimos guardar los cambios. Intentá nuevamente.");
+      setManagementError(
+        "No pudimos guardar los cambios. Verificá tus permisos e intentá nuevamente."
+      );
       setIsSaving(false);
       return;
     }
@@ -494,13 +545,18 @@ export default function HomePage() {
     setManagementError("");
     setManagementSuccess("");
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("businesses")
       .delete()
-      .eq("id", selectedBusiness.id);
+      .eq("id", selectedBusiness.id)
+      .select("id");
 
-    if (error) {
-      setManagementError("No pudimos eliminar el comercio. Revisá los permisos e intentá nuevamente.");
+    if (error || !data || data.length === 0) {
+      setManagementError(
+        error
+          ? "No pudimos eliminar el comercio. Revisá los permisos e intentá nuevamente."
+          : "Supabase no eliminó el comercio. Verificá los permisos de administrador e intentá nuevamente."
+      );
       setIsDeletingBusiness(false);
       return;
     }
@@ -852,19 +908,19 @@ export default function HomePage() {
             className="login-form"
             onSubmit={handleLogin}
           >
-            <label htmlFor="login-username">
-              Usuario
+            <label htmlFor="login-email">
+              Correo electrónico
             </label>
 
             <input
-              id="login-username"
-              type="text"
-              placeholder="Ingresá tu usuario"
-              value={loginUsername}
+              id="login-email"
+              type="email"
+              placeholder="Ingresá tu correo electrónico"
+              value={loginEmail}
               onChange={(event) =>
-                setLoginUsername(event.target.value)
+                setLoginEmail(event.target.value)
               }
-              autoComplete="username"
+              autoComplete="email"
               required
             />
 
@@ -968,8 +1024,9 @@ export default function HomePage() {
             <button
               className="login-button"
               type="submit"
+              disabled={isLoggingIn}
             >
-              Ingresar
+              {isLoggingIn ? "Ingresando..." : "Ingresar"}
             </button>
           </form>
 
@@ -1475,7 +1532,7 @@ export default function HomePage() {
             </p>
 
             {isEditingBusiness && (
-              <form className="edit-business-form" onSubmit={handleSaveBusiness}>
+              <form className="business-edit-form" onSubmit={handleSaveBusiness}>
                 <label htmlFor="edit-business-name">Nombre del comercio</label>
                 <input
                   id="edit-business-name"
@@ -1486,7 +1543,7 @@ export default function HomePage() {
                   required
                 />
 
-                <label htmlFor="edit-google-review-url">Enlace de reseñas de Google</label>
+                <label htmlFor="edit-google-review-url">Enlace directo de reseñas de Google</label>
                 <textarea
                   id="edit-google-review-url"
                   value={editGoogleReviewUrl}
@@ -1495,10 +1552,6 @@ export default function HomePage() {
                   required
                 />
 
-                {managementError && (
-                  <p className="form-message error-message" role="alert">{managementError}</p>
-                )}
-
                 <div className="business-management-actions">
                   <button className="primary-button" type="submit" disabled={isSaving}>
                     {isSaving ? "Guardando..." : "Guardar cambios"}
@@ -1506,13 +1559,13 @@ export default function HomePage() {
                   <button
                     className="secondary-button"
                     type="button"
+                    disabled={isSaving}
                     onClick={() => {
                       setEditBusinessName(selectedBusiness.name);
                       setEditGoogleReviewUrl(selectedBusiness.google_review_url);
                       setIsEditingBusiness(false);
                       setManagementError("");
                     }}
-                    disabled={isSaving}
                   >
                     Cancelar
                   </button>
@@ -1538,19 +1591,23 @@ export default function HomePage() {
                 <button
                   type="button"
                   className="danger-button"
-                  onClick={handleDeleteBusiness}
-                  disabled={isDeletingBusiness}
-                >
-                  {isDeletingBusiness ? "Eliminando..." : "Eliminar comercio"}
-                </button>
+                onClick={handleDeleteBusiness}
+                disabled={isDeletingBusiness}
+              >
+                {isDeletingBusiness ? "Eliminando..." : "Eliminar comercio"}
+              </button>
               </div>
             )}
 
-            {managementError && !isEditingBusiness && (
-              <p className="form-message error-message" role="alert">{managementError}</p>
+            {managementError && (
+              <p className="form-message error-message" role="alert">
+                {managementError}
+              </p>
             )}
             {managementSuccess && (
-              <p className="form-message success-message" role="status">{managementSuccess}</p>
+              <p className="form-message success-message" role="status">
+                {managementSuccess}
+              </p>
             )}
 
             <div className="material-content">
@@ -1923,22 +1980,7 @@ export default function HomePage() {
           margin-bottom: 18px;
         }
 
-        .edit-business-form {
-          max-width: 620px;
-          margin: 0 0 20px;
-          padding: 16px;
-          border: 1px solid #e2e8f0;
-          border-radius: 10px;
-          background: #fbfcfe;
-        }
 
-        .edit-business-form label:not(:first-child) {
-          margin-top: 14px;
-        }
-
-        .edit-business-form .form-message {
-          margin-top: 12px;
-        }
 
         .form-message {
           margin: 0 0 12px;
@@ -2253,6 +2295,41 @@ export default function HomePage() {
           line-height: 1.5;
           text-align: center;
         }
+
+          .business-edit-form {
+            display: grid;
+            gap: 10px;
+            margin: 18px 0;
+            padding: 18px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #f8fafc;
+          }
+
+          .business-edit-form label {
+            color: #344054;
+            font-size: 13px;
+            font-weight: 700;
+          }
+
+          .business-edit-form input,
+          .business-edit-form textarea {
+            width: 100%;
+            min-width: 0;
+            padding: 11px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            color: #172033;
+            font: inherit;
+            font-size: 14px;
+          }
+
+          .business-edit-form input:focus,
+          .business-edit-form textarea:focus {
+            outline: 2px solid #bfdbfe;
+            border-color: #1673e6;
+          }
 
         @media (max-width: 720px) {
           .admin-page {
