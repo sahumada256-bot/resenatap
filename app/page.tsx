@@ -97,6 +97,13 @@ export default function HomePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
+  const [isEditingBusiness, setIsEditingBusiness] = useState(false);
+  const [editBusinessName, setEditBusinessName] = useState("");
+  const [editGoogleReviewUrl, setEditGoogleReviewUrl] = useState("");
+  const [isDeletingBusiness, setIsDeletingBusiness] = useState(false);
+  const [managementError, setManagementError] = useState("");
+  const [managementSuccess, setManagementSuccess] = useState("");
 
   // ====================================================
   // PÁGINA PÚBLICA
@@ -344,6 +351,23 @@ export default function HomePage() {
   }
 
   // ====================================================
+  // COPIAR ENLACE PÚBLICO
+  // ====================================================
+
+  async function copyLandingUrl() {
+    if (!landingUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(landingUrl);
+      setCopyMessage("¡Enlace copiado!");
+    } catch {
+      setCopyMessage(
+        "No se pudo copiar automáticamente. Seleccioná y copiá el enlace manualmente."
+      );
+    }
+  }
+
+  // ====================================================
   // DESCARGAR QR
   // ====================================================
 
@@ -388,8 +412,108 @@ export default function HomePage() {
   // ====================================================
 
   function openBusiness(businessId: string) {
+    const business = businesses.find((item) => item.id === businessId);
+    if (!business) return;
+
     setSelectedId(businessId);
+    setEditBusinessName(business.name);
+    setEditGoogleReviewUrl(business.google_review_url);
+    setIsEditingBusiness(false);
+    setCopyMessage("");
+    setManagementSuccess("");
+    setManagementError("");
     setSuccessMessage("");
+    setErrorMessage("");
+  }
+
+  // ====================================================
+  // EDITAR COMERCIO
+  // ====================================================
+
+  async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManagementError("");
+    setManagementSuccess("");
+
+    if (!selectedBusiness) return;
+
+    const cleanName = editBusinessName.trim();
+    const cleanUrl = editGoogleReviewUrl.trim();
+
+    if (!cleanName) {
+      setManagementError("Ingresá el nombre del comercio.");
+      return;
+    }
+
+    if (!isValidGoogleReviewUrl(cleanUrl)) {
+      setManagementError("Ingresá un enlace válido de Google para dejar reseñas.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    const { data, error } = await supabase
+      .from("businesses")
+      .update({ name: cleanName, google_review_url: cleanUrl })
+      .eq("id", selectedBusiness.id)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      setManagementError("No pudimos guardar los cambios. Intentá nuevamente.");
+      setIsSaving(false);
+      return;
+    }
+
+    const updatedBusiness = data as Business;
+    setBusinesses((previous) =>
+      previous.map((business) =>
+        business.id === updatedBusiness.id ? updatedBusiness : business
+      )
+    );
+    setEditBusinessName(updatedBusiness.name);
+    setEditGoogleReviewUrl(updatedBusiness.google_review_url);
+    setIsEditingBusiness(false);
+    setManagementSuccess("Cambios guardados correctamente.");
+    setIsSaving(false);
+  }
+
+  // ====================================================
+  // ELIMINAR COMERCIO
+  // ====================================================
+
+  async function handleDeleteBusiness() {
+    if (!selectedBusiness || isDeletingBusiness) return;
+
+    const confirmed = window.confirm(
+      `¿Seguro que querés eliminar a "${selectedBusiness.name}"? Esta acción no se puede deshacer y su enlace público dejará de funcionar.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingBusiness(true);
+    setManagementError("");
+    setManagementSuccess("");
+
+    const { error } = await supabase
+      .from("businesses")
+      .delete()
+      .eq("id", selectedBusiness.id);
+
+    if (error) {
+      setManagementError("No pudimos eliminar el comercio. Revisá los permisos e intentá nuevamente.");
+      setIsDeletingBusiness(false);
+      return;
+    }
+
+    setBusinesses((previous) =>
+      previous.filter((business) => business.id !== selectedBusiness.id)
+    );
+    setSelectedId(null);
+    setIsEditingBusiness(false);
+    setCopyMessage("");
+    setManagementSuccess("Comercio eliminado correctamente.");
+    setCurrentPage((page) => Math.min(page, Math.max(1, Math.ceil((filteredBusinesses.length - 1) / BUSINESSES_PER_PAGE))));
+    setIsDeletingBusiness(false);
   }
 
   // ====================================================
@@ -398,6 +522,11 @@ export default function HomePage() {
 
   function closeBusinessPanel() {
     setSelectedId(null);
+    setIsEditingBusiness(false);
+    setCopyMessage("");
+    setManagementError("");
+    setManagementSuccess("");
+    setErrorMessage("");
   }
 
   // ====================================================
@@ -1184,6 +1313,13 @@ export default function HomePage() {
               </div>
             </div>
 
+            {managementSuccess && !selectedBusiness && (
+              <p className="form-message success-message" role="status">{managementSuccess}</p>
+            )}
+            {managementError && !selectedBusiness && (
+              <p className="form-message error-message" role="alert">{managementError}</p>
+            )}
+
             <div className="search-wrap">
               <span
                 className="search-icon"
@@ -1338,6 +1474,85 @@ export default function HomePage() {
               NFC y también el destino del QR.
             </p>
 
+            {isEditingBusiness && (
+              <form className="edit-business-form" onSubmit={handleSaveBusiness}>
+                <label htmlFor="edit-business-name">Nombre del comercio</label>
+                <input
+                  id="edit-business-name"
+                  type="text"
+                  value={editBusinessName}
+                  onChange={(event) => setEditBusinessName(event.target.value)}
+                  maxLength={100}
+                  required
+                />
+
+                <label htmlFor="edit-google-review-url">Enlace de reseñas de Google</label>
+                <textarea
+                  id="edit-google-review-url"
+                  value={editGoogleReviewUrl}
+                  onChange={(event) => setEditGoogleReviewUrl(event.target.value)}
+                  rows={3}
+                  required
+                />
+
+                {managementError && (
+                  <p className="form-message error-message" role="alert">{managementError}</p>
+                )}
+
+                <div className="business-management-actions">
+                  <button className="primary-button" type="submit" disabled={isSaving}>
+                    {isSaving ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setEditBusinessName(selectedBusiness.name);
+                      setEditGoogleReviewUrl(selectedBusiness.google_review_url);
+                      setIsEditingBusiness(false);
+                      setManagementError("");
+                    }}
+                    disabled={isSaving}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {!isEditingBusiness && (
+              <div className="business-management-actions business-management-top-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setEditBusinessName(selectedBusiness.name);
+                    setEditGoogleReviewUrl(selectedBusiness.google_review_url);
+                    setIsEditingBusiness(true);
+                    setManagementError("");
+                    setManagementSuccess("");
+                  }}
+                >
+                  Editar comercio
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={handleDeleteBusiness}
+                  disabled={isDeletingBusiness}
+                >
+                  {isDeletingBusiness ? "Eliminando..." : "Eliminar comercio"}
+                </button>
+              </div>
+            )}
+
+            {managementError && !isEditingBusiness && (
+              <p className="form-message error-message" role="alert">{managementError}</p>
+            )}
+            {managementSuccess && (
+              <p className="form-message success-message" role="status">{managementSuccess}</p>
+            )}
+
             <div className="material-content">
               <div className="qr-container">
                 <QRCodeSVG
@@ -1363,6 +1578,28 @@ export default function HomePage() {
                     event.currentTarget.select()
                   }
                 />
+
+                <button
+                  type="button"
+                  className="copy-link-button"
+                  onClick={copyLandingUrl}
+                >
+                  Copiar enlace
+                </button>
+
+                {copyMessage && (
+                  <p
+                    className={`copy-message ${
+                      copyMessage.startsWith("¡")
+                        ? "copy-message-success"
+                        : "copy-message-error"
+                    }`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {copyMessage}
+                  </p>
+                )}
 
                 <p className="material-hint">
                   Usá este mismo enlace para el QR y para
@@ -1650,6 +1887,59 @@ export default function HomePage() {
           background: #f6f8fb;
         }
 
+        .danger-button {
+          display: inline-flex;
+          min-height: 39px;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #f0c8c5;
+          border-radius: 8px;
+          padding: 0 14px;
+          background: #fff;
+          color: #b42318;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .danger-button:hover {
+          background: #fff5f4;
+        }
+
+        .danger-button:disabled {
+          opacity: 0.65;
+          cursor: wait;
+        }
+
+        .business-management-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 9px;
+          margin: 14px 0;
+        }
+
+        .business-management-top-actions {
+          margin-top: 0;
+          margin-bottom: 18px;
+        }
+
+        .edit-business-form {
+          max-width: 620px;
+          margin: 0 0 20px;
+          padding: 16px;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          background: #fbfcfe;
+        }
+
+        .edit-business-form label:not(:first-child) {
+          margin-top: 14px;
+        }
+
+        .edit-business-form .form-message {
+          margin-top: 12px;
+        }
+
         .form-message {
           margin: 0 0 12px;
           font-size: 12px;
@@ -1899,6 +2189,46 @@ export default function HomePage() {
 
         .link-details input {
           font-size: 12px;
+        }
+
+        .copy-link-button {
+          display: inline-flex;
+          min-height: 36px;
+          align-items: center;
+          justify-content: center;
+          margin-top: 9px;
+          border: 1px solid #d8e1eb;
+          border-radius: 8px;
+          padding: 0 13px;
+          background: #fff;
+          color: #26364d;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+
+        .copy-link-button:hover {
+          background: #f6f8fb;
+        }
+
+        .copy-link-button:focus-visible {
+          outline: 2px solid #16804c;
+          outline-offset: 2px;
+        }
+
+        .copy-message {
+          margin: 7px 0 0;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .copy-message-success {
+          color: #187847;
+        }
+
+        .copy-message-error {
+          color: #b42318;
         }
 
         .material-hint {
