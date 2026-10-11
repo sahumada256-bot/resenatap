@@ -100,6 +100,8 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
+  const [promoImageDataUrl, setPromoImageDataUrl] = useState("");
+  const [promoError, setPromoError] = useState("");
   const [isDeletingBusiness, setIsDeletingBusiness] = useState(false);
   const [isEditingBusiness, setIsEditingBusiness] = useState(false);
   const [editBusinessName, setEditBusinessName] = useState("");
@@ -449,6 +451,281 @@ export default function HomePage() {
   }
 
   // ====================================================
+  // GENERAR IMAGEN PROMOCIONAL (SIN GUARDAR EN SUPABASE)
+  // ====================================================
+
+  async function createPromoImage(): Promise<string> {
+    if (!selectedBusiness) {
+      throw new Error("Seleccioná un comercio para generar su imagen.");
+    }
+
+    // Tomamos el SVG del QR que ya corresponde al comercio seleccionado.
+    const qrSvg = document.getElementById("resenatap-qr");
+    if (!(qrSvg instanceof SVGElement)) {
+      throw new Error("No encontramos el QR de este comercio. Volvé a abrirlo e intentá nuevamente.");
+    }
+
+    const svgText = new XMLSerializer().serializeToString(qrSvg);
+    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      const qrImage = new Image();
+      await new Promise<void>((resolve, reject) => {
+        qrImage.onload = () => resolve();
+        qrImage.onerror = () => reject(new Error("No se pudo preparar el QR para la imagen."));
+        qrImage.src = svgUrl;
+      });
+
+      // Afiche vertical, inspirado en el modelo aprobado. No se guarda nada en Supabase.
+      const canvas = document.createElement("canvas");
+      canvas.width = 1024;
+      canvas.height = 1448;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("El navegador no pudo crear la imagen.");
+
+      const navy = "#092b52";
+      const blue = "#087bea";
+      const paleBlue = "#dff1ff";
+      const white = "#ffffff";
+      const center = 512;
+
+      function roundedRect(x: number, y: number, w: number, h: number, r: number, fill: string, stroke?: string, lineWidth = 1) {
+        ctx!.beginPath();
+        ctx!.roundRect(x, y, w, h, r);
+        ctx!.fillStyle = fill;
+        ctx!.fill();
+        if (stroke) {
+          ctx!.lineWidth = lineWidth;
+          ctx!.strokeStyle = stroke;
+          ctx!.stroke();
+        }
+      }
+      function drawStar(cx: number, cy: number, outer: number, inner: number, color: string) {
+        ctx!.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const radius = i % 2 === 0 ? outer : inner;
+          const angle = -Math.PI / 2 + i * Math.PI / 5;
+          const x = cx + Math.cos(angle) * radius;
+          const y = cy + Math.sin(angle) * radius;
+          if (i === 0) ctx!.moveTo(x, y); else ctx!.lineTo(x, y);
+        }
+        ctx!.closePath();
+        ctx!.fillStyle = color;
+        ctx!.fill();
+      }
+      function drawNfc(cx: number, cy: number, scale = 1) {
+        ctx!.save();
+        ctx!.strokeStyle = navy;
+        ctx!.lineWidth = 10 * scale;
+        ctx!.lineCap = "round";
+        ctx!.lineJoin = "round";
+        for (let i = 0; i < 3; i++) {
+          ctx!.beginPath();
+          ctx!.arc(cx - 14 * scale, cy, (20 + i * 18) * scale, -0.9, 0.9);
+          ctx!.stroke();
+        }
+        ctx!.restore();
+      }
+
+      // Fondo blanco con borde suave y detalles celestes en las esquinas.
+      ctx.fillStyle = white;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      roundedRect(2, 2, 1020, 1444, 38, white, "#d9e7f4", 3);
+      ctx.fillStyle = paleBlue;
+      ctx.beginPath(); ctx.moveTo(715, 3); ctx.lineTo(1020, 3); ctx.lineTo(1020, 180); ctx.quadraticCurveTo(950, 90, 800, 75); ctx.quadraticCurveTo(720, 60, 715, 3); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(3, 915); ctx.quadraticCurveTo(160, 965, 55, 1100); ctx.lineTo(3, 1160); ctx.fill();
+
+      // Encabezado: teléfono con ondas NFC, sin mano para evitar el defecto anterior.
+      ctx.save();
+      ctx.translate(95, 62);
+      ctx.rotate(-0.12);
+      roundedRect(0, 0, 132, 190, 27, navy);
+      roundedRect(10, 12, 112, 166, 19, white);
+      ctx.fillStyle = navy;
+      ctx.beginPath(); ctx.roundRect(44, 5, 44, 9, 5); ctx.fill();
+      ctx.strokeStyle = blue; ctx.lineWidth = 8; ctx.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath(); ctx.arc(66, 88, 17 + i * 15, Math.PI * 1.12, Math.PI * 1.88); ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.textAlign = "left";
+      ctx.fillStyle = navy;
+      ctx.font = "bold 83px Arial, Helvetica, sans-serif";
+      ctx.fillText("Reseña", 265, 151);
+      const logoWidth = ctx.measureText("Reseña").width;
+      ctx.fillStyle = blue;
+      ctx.fillText("Tap", 265 + logoWidth, 151);
+      ctx.fillStyle = navy;
+      ctx.font = "30px Arial, Helvetica, sans-serif";
+      ctx.fillText("Tu opinión nos ayuda a crecer", 270, 194);
+
+      // Cinco estrellas doradas, en lugar de una mano.
+      for (let i = 0; i < 5; i++) drawStar(385 + i * 64, 226, 13, 6, "#fbbc04");
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = navy;
+      ctx.font = "bold 57px Arial, Helvetica, sans-serif";
+      ctx.fillText("Dejá tu reseña en", center, 292);
+
+      // Logotipo tipográfico Google multicolor.
+      const googleParts = [
+        { text: "G", color: "#4285f4" }, { text: "o", color: "#ea4335" },
+        { text: "o", color: "#fbbc05" }, { text: "g", color: "#4285f4" },
+        { text: "l", color: "#34a853" }, { text: "e", color: "#ea4335" },
+      ];
+      ctx.font = "bold 104px Arial, Helvetica, sans-serif";
+      const totalGoogleWidth = googleParts.reduce((sum, part) => sum + ctx.measureText(part.text).width, 0);
+      let gx = center - totalGoogleWidth / 2;
+      for (const part of googleParts) {
+        ctx.fillStyle = part.color;
+        ctx.textAlign = "left";
+        ctx.fillText(part.text, gx, 390);
+        gx += ctx.measureText(part.text).width;
+      }
+
+      // Adornos azules laterales.
+      ctx.strokeStyle = blue; ctx.lineWidth = 11; ctx.lineCap = "round";
+      for (const side of [1, -1]) {
+        const x = side === 1 ? 160 : 864;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          const y = 355 + i * 42;
+          ctx.moveTo(x - (side === 1 ? 0 : 0), y);
+          ctx.lineTo(x + (side === 1 ? 44 : -44), y + (i - 1) * 7);
+          ctx.stroke();
+        }
+      }
+
+      // Marco y QR real del comercio seleccionado.
+      ctx.fillStyle = paleBlue;
+      ctx.beginPath(); ctx.roundRect(315, 423, 394, 394, 42); ctx.fill();
+      roundedRect(333, 440, 358, 358, 32, white, navy, 8);
+      ctx.fillStyle = white;
+      ctx.fillRect(354, 461, 316, 316);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(qrImage, 358, 465, 308, 308);
+      ctx.imageSmoothingEnabled = true;
+
+      // NFC queda centrado DEBAJO del marco, sin invadir el QR ni superponer textos.
+      drawNfc(center, 853, 0.72);
+      ctx.textAlign = "center";
+      ctx.fillStyle = navy;
+      ctx.font = "bold 34px Arial, Helvetica, sans-serif";
+      ctx.fillText("NFC", center, 913);
+      ctx.font = "bold 22px Arial, Helvetica, sans-serif";
+      ctx.fillText("También podés", center, 943);
+      ctx.fillText("tocar con tu celular", center, 970);
+
+      // Tres pasos inferiores, con separadores.
+      const stepY = 1030;
+      const circles = [195, 512, 829];
+      for (const x of circles) {
+        ctx.fillStyle = paleBlue;
+        ctx.beginPath(); ctx.arc(x, stepY + 28, 59, 0, Math.PI * 2); ctx.fill();
+      }
+      // Paso 1: teléfono con ondas.
+      roundedRect(174, stepY - 9, 38, 74, 10, white, navy, 6);
+      ctx.strokeStyle = blue; ctx.lineWidth = 6; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.arc(210, stepY + 27, 17, -0.8, 0.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(210, stepY + 27, 28, -0.8, 0.8); ctx.stroke();
+      // Paso 2: G multicolor.
+      ctx.font = "bold 76px Arial, Helvetica, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#4285f4"; ctx.fillText("G", 512, stepY + 54);
+      // Paso 3: estrella dorada.
+      drawStar(829, stepY + 28, 34, 15, "#fbbc04");
+
+      ctx.strokeStyle = "#b9d7ee"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(353, 1020); ctx.lineTo(353, 1160); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(671, 1020); ctx.lineTo(671, 1160); ctx.stroke();
+      ctx.fillStyle = navy; ctx.font = "bold 24px Arial, Helvetica, sans-serif";
+      ctx.fillText("Escaneá", 195, 1122);
+      ctx.fillText("o tocá el código", 195, 1151);
+      ctx.fillText("Dejá tu", 512, 1122);
+      ctx.fillText("reseña", 512, 1151);
+      ctx.fillText("Ayudanos", 829, 1122);
+      ctx.fillText("a mejorar", 829, 1151);
+
+      // Pie azul oscuro con ondas celestes y agradecimiento.
+      ctx.fillStyle = blue;
+      ctx.beginPath(); ctx.moveTo(3, 1210); ctx.quadraticCurveTo(270, 1260, 512, 1228); ctx.quadraticCurveTo(760, 1205, 1021, 1210); ctx.lineTo(1021, 1250); ctx.lineTo(3, 1250); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = navy;
+      ctx.beginPath(); ctx.moveTo(3, 1240); ctx.quadraticCurveTo(300, 1285, 512, 1260); ctx.quadraticCurveTo(780, 1235, 1021, 1240); ctx.lineTo(1021, 1445); ctx.lineTo(3, 1445); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = white;
+      ctx.font = "italic bold 72px Georgia, serif";
+      ctx.textAlign = "center";
+      ctx.fillText("¡Gracias!", center, 1367);
+      ctx.strokeStyle = blue; ctx.lineWidth = 7; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(410, 1388); ctx.quadraticCurveTo(512, 1357, 614, 1388); ctx.stroke();
+      ctx.strokeStyle = blue; ctx.lineWidth = 8;
+      for (const x of [300, 724]) {
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath(); ctx.moveTo(x - 12, 1322 + i * 27); ctx.lineTo(x + 12, 1315 + i * 27); ctx.stroke();
+        }
+      }
+
+      return canvas.toDataURL("image/png");
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  }
+
+  async function handleGeneratePromoImage() {
+    setPromoError("");
+    setPromoImageDataUrl("");
+    try {
+      const imageDataUrl = await createPromoImage();
+      setPromoImageDataUrl(imageDataUrl);
+    } catch (error) {
+      setPromoError(error instanceof Error ? error.message : "No se pudo generar la imagen.");
+    }
+  }
+
+  function handleDownloadPromoImage() {
+    if (!promoImageDataUrl || !selectedBusiness) return;
+    const link = document.createElement("a");
+    link.href = promoImageDataUrl;
+    link.download = `resenatap-${selectedBusiness.id}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  function handlePrintPromoImage() {
+    if (!promoImageDataUrl || !selectedBusiness) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setPromoError("El navegador bloqueó la ventana de impresión. Permití las ventanas emergentes e intentá nuevamente.");
+      return;
+    }
+
+    const safeName = selectedBusiness.name.replace(/[<>&"']/g, "");
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+      <html lang="es">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>Imprimir ReseñaTap - ${safeName}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            * { box-sizing: border-box; }
+            html, body { margin: 0; padding: 0; background: #fff; }
+            body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+            img { display: block; width: auto; height: auto; max-width: 100%; max-height: 275mm; object-fit: contain; }
+            @media screen { body { padding: 16px; } img { max-height: calc(100vh - 32px); } }
+          </style>
+        </head>
+        <body>
+          <img src="${promoImageDataUrl}" alt="Imagen promocional de ${safeName}" onload="window.focus(); window.print();" />
+        </body>
+      </html>`);
+    printWindow.document.close();
+  }
+
+  // ====================================================
   // BÚSQUEDA
   // ====================================================
 
@@ -466,6 +743,8 @@ export default function HomePage() {
     if (!business) return;
 
     setSelectedId(businessId);
+    setPromoImageDataUrl("");
+    setPromoError("");
     setEditBusinessName(business.name);
     setEditGoogleReviewUrl(business.google_review_url);
     setIsEditingBusiness(false);
@@ -1683,6 +1962,48 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+
+            <div className="promo-image-tools">
+              <div className="promo-image-heading">
+                <h3>Imagen promocional</h3>
+                <p>Generá una imagen con el nombre del comercio y su QR único. Podés descargarla o imprimirla.</p>
+              </div>
+
+              <div className="material-actions promo-image-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleGeneratePromoImage}
+                >
+                  Generar imagen
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleDownloadPromoImage}
+                  disabled={!promoImageDataUrl}
+                >
+                  Descargar imagen PNG
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handlePrintPromoImage}
+                  disabled={!promoImageDataUrl}
+                >
+                  Imprimir imagen
+                </button>
+              </div>
+
+              {promoError && <p className="form-message error-message" role="alert">{promoError}</p>}
+
+              {promoImageDataUrl && (
+                <div className="promo-image-preview">
+                  <p className="promo-preview-label">Vista previa de la imagen generada</p>
+                  <img src={promoImageDataUrl} alt={`Imagen promocional de ${selectedBusiness.name}`} />
+                </div>
+              )}
+            </div>
           </section>
         )}
 
@@ -2286,6 +2607,57 @@ export default function HomePage() {
           gap: 9px;
         }
 
+        .material-actions button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .promo-image-tools {
+          margin-top: 28px;
+          padding-top: 22px;
+          border-top: 1px solid #e8edf3;
+        }
+
+        .promo-image-heading h3 {
+          margin: 0;
+          color: #172033;
+          font-size: 15px;
+        }
+
+        .promo-image-heading p {
+          margin: 8px 0 15px;
+          color: #728097;
+          font-size: 12px;
+          line-height: 1.55;
+        }
+
+        .promo-image-actions {
+          margin-bottom: 16px;
+        }
+
+        .promo-image-preview {
+          max-width: 440px;
+          margin-top: 18px;
+          padding: 12px;
+          border: 1px solid #e1e8f0;
+          border-radius: 12px;
+          background: #f8fafc;
+        }
+
+        .promo-preview-label {
+          margin: 0 0 10px;
+          color: #728097;
+          font-size: 11px;
+        }
+
+        .promo-image-preview img {
+          display: block;
+          width: 100%;
+          height: auto;
+          border-radius: 6px;
+          background: white;
+        }
+
         .site-footer {
           margin-top: 28px;
           padding: 16px 8px 0;
@@ -2372,6 +2744,10 @@ export default function HomePage() {
           .material-actions .primary-button,
           .material-actions .secondary-button {
             width: 100%;
+          }
+
+          .promo-image-preview {
+            max-width: 100%;
           }
         }
 
