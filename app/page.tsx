@@ -30,6 +30,14 @@ type Business = {
   created_at: string;
 };
 
+type PromoLanguage = "es" | "en" | "both";
+
+const PROMO_LANGUAGE_OPTIONS: { value: PromoLanguage; label: string }[] = [
+  { value: "es", label: "Español" },
+  { value: "en", label: "English" },
+  { value: "both", label: "Español + English" },
+];
+
 // ======================================================
 // FUNCIONES AUXILIARES
 // ======================================================
@@ -102,6 +110,7 @@ export default function HomePage() {
   const [copyMessage, setCopyMessage] = useState("");
   const [promoImageDataUrl, setPromoImageDataUrl] = useState("");
   const [promoError, setPromoError] = useState("");
+  const [promoLanguage, setPromoLanguage] = useState<PromoLanguage>("es");
   const [isDeletingBusiness, setIsDeletingBusiness] = useState(false);
   const [isEditingBusiness, setIsEditingBusiness] = useState(false);
   const [editBusinessName, setEditBusinessName] = useState("");
@@ -454,7 +463,7 @@ export default function HomePage() {
   // GENERAR IMAGEN PROMOCIONAL (SIN GUARDAR EN SUPABASE)
   // ====================================================
 
-  async function createPromoImage(): Promise<string> {
+  async function createPromoImage(language: PromoLanguage): Promise<string> {
     if (!selectedBusiness) {
       throw new Error("Seleccioná un comercio para generar su imagen.");
     }
@@ -477,193 +486,411 @@ export default function HomePage() {
         qrImage.src = svgUrl;
       });
 
-      // Afiche vertical, inspirado en el modelo aprobado. No se guarda nada en Supabase.
+      // Cartel vertical 2:3. No se guarda nada en Supabase.
+      const W = 1024;
+      const H = 1536;
       const canvas = document.createElement("canvas");
-      canvas.width = 1024;
-      canvas.height = 1448;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("El navegador no pudo crear la imagen.");
+      canvas.width = W;
+      canvas.height = H;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("El navegador no pudo crear la imagen.");
+      const g: CanvasRenderingContext2D = context;
 
-      const navy = "#092b52";
-      const blue = "#087bea";
-      const paleBlue = "#dff1ff";
-      const white = "#ffffff";
-      const center = 512;
+      // ------------------------------------------------
+      // Colores y textos
+      // ------------------------------------------------
+      const navy = "#0b2a4a";
+      const blue = "#1673e6";
+      const grey = "#5b6b80";
+      const gold = "#fbbc04";
+      const red = "#ea4335";
+      const green = "#34a853";
+      const gBlue = "#4285f4";
+      const font = "Arial, Helvetica, sans-serif";
+      const cx = W / 2;
 
-      function roundedRect(x: number, y: number, w: number, h: number, r: number, fill: string, stroke?: string, lineWidth = 1) {
-        ctx!.beginPath();
-        ctx!.roundRect(x, y, w, h, r);
-        ctx!.fillStyle = fill;
-        ctx!.fill();
-        if (stroke) {
-          ctx!.lineWidth = lineWidth;
-          ctx!.strokeStyle = stroke;
-          ctx!.stroke();
+      const TEXTS = {
+        es: {
+          tagline: "Conectá · Escaneá · Dejá tu reseña",
+          headline: ["¡Tu opinión", "nos importa!"],
+          google: "Dejanos tu reseña en Google",
+          nfc: ["Acercá tu celular", "con NFC"],
+          slogan: "Tu opinión nos ayuda a crecer",
+          button: "Dejar mi reseña",
+        },
+        en: {
+          tagline: "Connect · Scan · Leave your review",
+          headline: ["Your opinion", "matters to us!"],
+          google: "Leave us a review on Google",
+          nfc: ["Hold your phone", "near the NFC tag"],
+          slogan: "Your opinion helps us grow",
+          button: "Leave my review",
+        },
+      };
+
+      const both = language === "both";
+      const primary = language === "en" ? TEXTS.en : TEXTS.es;
+      const secondary = both ? TEXTS.en : null;
+
+      // ------------------------------------------------
+      // Utilidades de dibujo
+      // ------------------------------------------------
+      const setFont = (size: number, weight = "bold", style = "", family = font) => {
+        g.font = `${style} ${weight} ${size}px ${family}`.trim();
+      };
+
+      const fitSize = (text: string, maxWidth: number, startSize: number, weight = "bold", style = "", family = font) => {
+        let size = startSize;
+        while (size > 10) {
+          setFont(size, weight, style, family);
+          if (g.measureText(text).width <= maxWidth) break;
+          size -= 1;
         }
-      }
-      function drawStar(cx: number, cy: number, outer: number, inner: number, color: string) {
-        ctx!.beginPath();
+        return size;
+      };
+
+      const measureSpaced = (text: string, spacing: number) => {
+        const chars = [...text];
+        const widths = chars.reduce((sum, ch) => sum + g.measureText(ch).width, 0);
+        return widths + spacing * Math.max(0, chars.length - 1);
+      };
+
+      const drawSpaced = (text: string, centerX: number, y: number, spacing: number) => {
+        const chars = [...text];
+        let x = centerX - measureSpaced(text, spacing) / 2;
+        g.textAlign = "left";
+        for (const ch of chars) {
+          g.fillText(ch, x, y);
+          x += g.measureText(ch).width + spacing;
+        }
+      };
+
+      const circle = (x: number, y: number, r: number, color: string) => {
+        g.beginPath();
+        g.arc(x, y, r, 0, Math.PI * 2);
+        g.fillStyle = color;
+        g.fill();
+      };
+
+      const rr = (x: number, y: number, w: number, h: number, r: number, fill: string, stroke?: string, lineWidth = 1) => {
+        g.beginPath();
+        g.roundRect(x, y, w, h, r);
+        g.fillStyle = fill;
+        g.fill();
+        if (stroke) {
+          g.lineWidth = lineWidth;
+          g.strokeStyle = stroke;
+          g.stroke();
+        }
+      };
+
+      const star = (x: number, y: number, outer: number, inner: number, color: string) => {
+        g.beginPath();
         for (let i = 0; i < 10; i++) {
           const radius = i % 2 === 0 ? outer : inner;
-          const angle = -Math.PI / 2 + i * Math.PI / 5;
-          const x = cx + Math.cos(angle) * radius;
-          const y = cy + Math.sin(angle) * radius;
-          if (i === 0) ctx!.moveTo(x, y); else ctx!.lineTo(x, y);
+          const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+          const px = x + Math.cos(angle) * radius;
+          const py = y + Math.sin(angle) * radius;
+          if (i === 0) g.moveTo(px, py);
+          else g.lineTo(px, py);
         }
-        ctx!.closePath();
-        ctx!.fillStyle = color;
-        ctx!.fill();
-      }
-      function drawNfc(cx: number, cy: number, scale = 1) {
-        ctx!.save();
-        ctx!.strokeStyle = navy;
-        ctx!.lineWidth = 10 * scale;
-        ctx!.lineCap = "round";
-        ctx!.lineJoin = "round";
+        g.closePath();
+        g.fillStyle = color;
+        g.fill();
+      };
+
+      const googleG = (x: number, y: number, r: number) => {
+        const rad = (deg: number) => (deg * Math.PI) / 180;
+        const thickness = r * 0.38;
+        const arcRadius = r - thickness / 2;
+        g.save();
+        g.lineWidth = thickness;
+        g.lineCap = "butt";
+        const segments: Array<[number, number, string]> = [
+          [205, 318, red],
+          [135, 205, "#fbbc05"],
+          [45, 135, green],
+          [-15, 45, gBlue],
+        ];
+        for (const [from, to, color] of segments) {
+          g.beginPath();
+          g.arc(x, y, arcRadius, rad(from), rad(to));
+          g.strokeStyle = color;
+          g.stroke();
+        }
+        g.fillStyle = gBlue;
+        g.fillRect(x, y - thickness / 2, r * 0.95, thickness);
+        g.restore();
+      };
+
+      const nfcWaves = (x: number, y: number, scale: number) => {
+        g.save();
+        g.strokeStyle = navy;
+        g.lineWidth = 9 * scale;
+        g.lineCap = "round";
         for (let i = 0; i < 3; i++) {
-          ctx!.beginPath();
-          ctx!.arc(cx - 14 * scale, cy, (20 + i * 18) * scale, -0.9, 0.9);
-          ctx!.stroke();
+          g.beginPath();
+          g.arc(x - 14 * scale, y, (18 + i * 17) * scale, -0.9, 0.9);
+          g.stroke();
         }
-        ctx!.restore();
-      }
+        g.restore();
+      };
 
-      // Fondo blanco con borde suave y detalles celestes en las esquinas.
-      ctx.fillStyle = white;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      roundedRect(2, 2, 1020, 1444, 38, white, "#d9e7f4", 3);
-      ctx.fillStyle = paleBlue;
-      ctx.beginPath(); ctx.moveTo(715, 3); ctx.lineTo(1020, 3); ctx.lineTo(1020, 180); ctx.quadraticCurveTo(950, 90, 800, 75); ctx.quadraticCurveTo(720, 60, 715, 3); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(3, 915); ctx.quadraticCurveTo(160, 965, 55, 1100); ctx.lineTo(3, 1160); ctx.fill();
+      // ------------------------------------------------
+      // Fondo y adornos de esquina
+      // ------------------------------------------------
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, W, H);
 
-      // Encabezado: teléfono con ondas NFC, sin mano para evitar el defecto anterior.
-      ctx.save();
-      ctx.translate(95, 62);
-      ctx.rotate(-0.12);
-      roundedRect(0, 0, 132, 190, 27, navy);
-      roundedRect(10, 12, 112, 166, 19, white);
-      ctx.fillStyle = navy;
-      ctx.beginPath(); ctx.roundRect(44, 5, 44, 9, 5); ctx.fill();
-      ctx.strokeStyle = blue; ctx.lineWidth = 8; ctx.lineCap = "round";
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath(); ctx.arc(66, 88, 17 + i * 15, Math.PI * 1.12, Math.PI * 1.88); ctx.stroke();
-      }
-      ctx.restore();
+      // Esquina superior izquierda (amarillo + azul).
+      circle(22, 22, 175, gold);
+      circle(-6, -6, 140, gBlue);
 
-      ctx.textAlign = "left";
-      ctx.fillStyle = navy;
-      ctx.font = "bold 83px Arial, Helvetica, sans-serif";
-      ctx.fillText("Reseña", 265, 151);
-      const logoWidth = ctx.measureText("Reseña").width;
-      ctx.fillStyle = blue;
-      ctx.fillText("Tap", 265 + logoWidth, 151);
-      ctx.fillStyle = navy;
-      ctx.font = "30px Arial, Helvetica, sans-serif";
-      ctx.fillText("Tu opinión nos ayuda a crecer", 270, 194);
-
-      // Cinco estrellas doradas, en lugar de una mano.
-      for (let i = 0; i < 5; i++) drawStar(385 + i * 64, 226, 13, 6, "#fbbc04");
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = navy;
-      ctx.font = "bold 57px Arial, Helvetica, sans-serif";
-      ctx.fillText("Dejá tu reseña en", center, 292);
-
-      // Logotipo tipográfico Google multicolor.
-      const googleParts = [
-        { text: "G", color: "#4285f4" }, { text: "o", color: "#ea4335" },
-        { text: "o", color: "#fbbc05" }, { text: "g", color: "#4285f4" },
-        { text: "l", color: "#34a853" }, { text: "e", color: "#ea4335" },
+      // Destellos de colores arriba a la derecha.
+      const sparkles: Array<[number, string]> = [
+        [215, gBlue],
+        [180, red],
+        [145, gold],
+        [110, green],
       ];
-      ctx.font = "bold 104px Arial, Helvetica, sans-serif";
-      const totalGoogleWidth = googleParts.reduce((sum, part) => sum + ctx.measureText(part.text).width, 0);
-      let gx = center - totalGoogleWidth / 2;
-      for (const part of googleParts) {
-        ctx.fillStyle = part.color;
-        ctx.textAlign = "left";
-        ctx.fillText(part.text, gx, 390);
-        gx += ctx.measureText(part.text).width;
+      g.save();
+      g.lineWidth = 12;
+      g.lineCap = "round";
+      for (const [deg, color] of sparkles) {
+        const a = (deg * Math.PI) / 180;
+        g.beginPath();
+        g.moveTo(950 + Math.cos(a) * 22, 115 + Math.sin(a) * 22);
+        g.lineTo(950 + Math.cos(a) * 60, 115 + Math.sin(a) * 60);
+        g.strokeStyle = color;
+        g.stroke();
+      }
+      g.restore();
+
+      // Esquina inferior derecha (círculos de colores).
+      g.save();
+      g.beginPath();
+      g.rect(0, 0, W, H);
+      g.clip();
+      circle(850, 1565, 92, red);
+      circle(985, 1455, 108, gold);
+      circle(1042, 1345, 62, gBlue);
+      circle(992, 1585, 200, green);
+      g.restore();
+
+      // ------------------------------------------------
+      // Encabezado: teléfono + logo ReseñaTap
+      // ------------------------------------------------
+      setFont(88, "bold");
+      const reseñaW = g.measureText("Reseña").width;
+      const tapW = g.measureText("Tap").width;
+      const logoW = reseñaW + tapW;
+      const iconW = 185;
+      const gap = 22;
+      const groupX = Math.max(205, cx - (iconW + gap + logoW) / 2);
+      const logoX = groupX + iconW + gap;
+      const logoBase = 158;
+
+      g.save();
+      g.translate(groupX, 72);
+      g.rotate(-0.08);
+      g.shadowColor = "rgba(9,43,82,0.18)";
+      g.shadowBlur = 14;
+      g.shadowOffsetY = 6;
+      rr(0, 0, 128, 184, 24, navy);
+      g.restore();
+      g.save();
+      g.translate(groupX, 72);
+      g.rotate(-0.08);
+      rr(9, 11, 110, 162, 17, "#ffffff");
+      rr(44, 4, 40, 8, 4, navy);
+      star(64, 96, 34, 15, gold);
+      g.strokeStyle = blue;
+      g.lineWidth = 7;
+      g.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        g.beginPath();
+        g.arc(124, 80, 22 + i * 16, -0.8, 0.8);
+        g.stroke();
+      }
+      g.restore();
+
+      g.textAlign = "left";
+      setFont(88, "bold");
+      g.fillStyle = navy;
+      g.fillText("Reseña", logoX, logoBase);
+      g.fillStyle = blue;
+      g.fillText("Tap", logoX + reseñaW, logoBase);
+
+      g.textAlign = "center";
+      g.fillStyle = grey;
+      setFont(25, "normal");
+      g.fillText(primary.tagline, logoX + logoW / 2, logoBase + 42);
+      if (secondary) {
+        setFont(21, "normal");
+        g.fillText(secondary.tagline, logoX + logoW / 2, logoBase + 72);
       }
 
-      // Adornos azules laterales.
-      ctx.strokeStyle = blue; ctx.lineWidth = 11; ctx.lineCap = "round";
-      for (const side of [1, -1]) {
-        const x = side === 1 ? 160 : 864;
-        for (let i = 0; i < 3; i++) {
-          ctx.beginPath();
-          const y = 355 + i * 42;
-          ctx.moveTo(x - (side === 1 ? 0 : 0), y);
-          ctx.lineTo(x + (side === 1 ? 44 : -44), y + (i - 1) * 7);
-          ctx.stroke();
-        }
+      // ------------------------------------------------
+      // Nombre del comercio entre líneas (se adapta a cada negocio)
+      // ------------------------------------------------
+      const bizName = selectedBusiness.name.trim().toUpperCase();
+      const bizY = 322;
+      const bizSpacing = 6;
+      let bizSize = 42;
+      while (bizSize > 16) {
+        setFont(bizSize, "bold");
+        if (measureSpaced(bizName, bizSpacing) <= 560) break;
+        bizSize -= 1;
+      }
+      setFont(bizSize, "bold");
+      const bizW = measureSpaced(bizName, bizSpacing);
+      g.fillStyle = navy;
+      drawSpaced(bizName, cx, bizY, bizSpacing);
+      g.strokeStyle = "#d3dce8";
+      g.lineWidth = 2;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(110, bizY - bizSize * 0.35);
+      g.lineTo(cx - bizW / 2 - 28, bizY - bizSize * 0.35);
+      g.moveTo(cx + bizW / 2 + 28, bizY - bizSize * 0.35);
+      g.lineTo(W - 110, bizY - bizSize * 0.35);
+      g.stroke();
+
+      // ------------------------------------------------
+      // Titular
+      // ------------------------------------------------
+      const headlineStart = both ? 80 : 92;
+      const headlineSize = Math.min(
+        fitSize(primary.headline[0], 800, headlineStart),
+        fitSize(primary.headline[1], 800, headlineStart)
+      );
+      setFont(headlineSize, "bold");
+      g.textAlign = "center";
+      g.fillStyle = navy;
+      const h1 = bizY + 108;
+      const h2 = h1 + Math.round(headlineSize * 1.1);
+      g.fillText(primary.headline[0], cx, h1);
+      g.fillText(primary.headline[1], cx, h2);
+      let headlineEnd = h2;
+      if (secondary) {
+        const enText = secondary.headline.join(" ");
+        const enSize = fitSize(enText, 760, 40);
+        setFont(enSize, "bold");
+        g.fillStyle = blue;
+        headlineEnd = h2 + 54;
+        g.fillText(enText, cx, headlineEnd);
       }
 
-      // Marco y QR real del comercio seleccionado.
-      ctx.fillStyle = paleBlue;
-      ctx.beginPath(); ctx.roundRect(315, 423, 394, 394, 42); ctx.fill();
-      roundedRect(333, 440, 358, 358, 32, white, navy, 8);
-      ctx.fillStyle = white;
-      ctx.fillRect(354, 461, 316, 316);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(qrImage, 358, 465, 308, 308);
-      ctx.imageSmoothingEnabled = true;
+      // Estrellas
+      const starsY = headlineEnd + 60;
+      for (let i = 0; i < 5; i++) star(cx + (i - 2) * 62, starsY, 26, 11.5, gold);
 
-      // NFC queda centrado DEBAJO del marco, sin invadir el QR ni superponer textos.
-      drawNfc(center, 853, 0.72);
-      ctx.textAlign = "center";
-      ctx.fillStyle = navy;
-      ctx.font = "bold 34px Arial, Helvetica, sans-serif";
-      ctx.fillText("NFC", center, 913);
-      ctx.font = "bold 22px Arial, Helvetica, sans-serif";
-      ctx.fillText("También podés", center, 943);
-      ctx.fillText("tocar con tu celular", center, 970);
-
-      // Tres pasos inferiores, con separadores.
-      const stepY = 1030;
-      const circles = [195, 512, 829];
-      for (const x of circles) {
-        ctx.fillStyle = paleBlue;
-        ctx.beginPath(); ctx.arc(x, stepY + 28, 59, 0, Math.PI * 2); ctx.fill();
+      // Google + texto
+      const gy = starsY + 80;
+      setFont(30, "normal");
+      const gText = primary.google;
+      const gTextW = g.measureText(gText).width;
+      const gDiam = 46;
+      const gTotal = gDiam + 16 + gTextW;
+      const gStart = cx - gTotal / 2;
+      googleG(gStart + gDiam / 2, gy - 10, gDiam / 2);
+      g.textAlign = "left";
+      g.fillStyle = grey;
+      g.fillText(gText, gStart + gDiam + 16, gy);
+      let gEnd = gy + 18;
+      if (secondary) {
+        setFont(23, "normal");
+        g.textAlign = "center";
+        g.fillStyle = "#7d8da3";
+        g.fillText(secondary.google, cx, gy + 36);
+        gEnd = gy + 44;
       }
-      // Paso 1: teléfono con ondas.
-      roundedRect(174, stepY - 9, 38, 74, 10, white, navy, 6);
-      ctx.strokeStyle = blue; ctx.lineWidth = 6; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.arc(210, stepY + 27, 17, -0.8, 0.8); ctx.stroke();
-      ctx.beginPath(); ctx.arc(210, stepY + 27, 28, -0.8, 0.8); ctx.stroke();
-      // Paso 2: G multicolor.
-      ctx.font = "bold 76px Arial, Helvetica, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#4285f4"; ctx.fillText("G", 512, stepY + 54);
-      // Paso 3: estrella dorada.
-      drawStar(829, stepY + 28, 34, 15, "#fbbc04");
 
-      ctx.strokeStyle = "#b9d7ee"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(353, 1020); ctx.lineTo(353, 1160); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(671, 1020); ctx.lineTo(671, 1160); ctx.stroke();
-      ctx.fillStyle = navy; ctx.font = "bold 24px Arial, Helvetica, sans-serif";
-      ctx.fillText("Escaneá", 195, 1122);
-      ctx.fillText("o tocá el código", 195, 1151);
-      ctx.fillText("Dejá tu", 512, 1122);
-      ctx.fillText("reseña", 512, 1151);
-      ctx.fillText("Ayudanos", 829, 1122);
-      ctx.fillText("a mejorar", 829, 1151);
+      // ------------------------------------------------
+      // Tarjeta con el QR real del comercio (sin adornos laterales)
+      // ------------------------------------------------
+      const cardSize = both ? 350 : 380;
+      const cardX = cx - cardSize / 2;
+      const cardY = gEnd + 28;
+      g.save();
+      g.shadowColor = "rgba(9,43,82,0.18)";
+      g.shadowBlur = 30;
+      g.shadowOffsetY = 10;
+      rr(cardX, cardY, cardSize, cardSize, 34, "#ffffff", "#e6edf5", 2);
+      g.restore();
+      const qrPad = 22;
+      g.imageSmoothingEnabled = false;
+      g.drawImage(qrImage, cardX + qrPad, cardY + qrPad, cardSize - qrPad * 2, cardSize - qrPad * 2);
+      g.imageSmoothingEnabled = true;
+      const cardBottom = cardY + cardSize;
 
-      // Pie azul oscuro con ondas celestes y agradecimiento.
-      ctx.fillStyle = blue;
-      ctx.beginPath(); ctx.moveTo(3, 1210); ctx.quadraticCurveTo(270, 1260, 512, 1228); ctx.quadraticCurveTo(760, 1205, 1021, 1210); ctx.lineTo(1021, 1250); ctx.lineTo(3, 1250); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = navy;
-      ctx.beginPath(); ctx.moveTo(3, 1240); ctx.quadraticCurveTo(300, 1285, 512, 1260); ctx.quadraticCurveTo(780, 1235, 1021, 1240); ctx.lineTo(1021, 1445); ctx.lineTo(3, 1445); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = white;
-      ctx.font = "italic bold 72px Georgia, serif";
-      ctx.textAlign = "center";
-      ctx.fillText("¡Gracias!", center, 1367);
-      ctx.strokeStyle = blue; ctx.lineWidth = 7; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(410, 1388); ctx.quadraticCurveTo(512, 1357, 614, 1388); ctx.stroke();
-      ctx.strokeStyle = blue; ctx.lineWidth = 8;
-      for (const x of [300, 724]) {
-        for (let i = 0; i < 3; i++) {
-          ctx.beginPath(); ctx.moveTo(x - 12, 1322 + i * 27); ctx.lineTo(x + 12, 1315 + i * 27); ctx.stroke();
-        }
+      // ------------------------------------------------
+      // NFC (izquierda) y teléfono (derecha). Sin mockup del soporte.
+      // ------------------------------------------------
+      const nfcX = 320;
+      const nfcY = cardBottom + 78;
+      nfcWaves(nfcX, nfcY, 0.95);
+      g.textAlign = "center";
+      g.fillStyle = grey;
+      setFont(27, "normal");
+      g.fillText(primary.nfc[0], nfcX, nfcY + 66);
+      g.fillText(primary.nfc[1], nfcX, nfcY + 98);
+      if (secondary) {
+        setFont(21, "normal");
+        g.fillStyle = "#7d8da3";
+        g.fillText(secondary.nfc[0], nfcX, nfcY + 136);
+        g.fillText(secondary.nfc[1], nfcX, nfcY + 162);
+      }
+
+      const phoneScale = both ? 0.78 : 0.92;
+      g.save();
+      g.translate(745, cardBottom + 45 + 140 * phoneScale);
+      g.rotate(0.2);
+      g.scale(phoneScale, phoneScale);
+      g.save();
+      g.shadowColor = "rgba(9,43,82,0.28)";
+      g.shadowBlur = 22;
+      g.shadowOffsetY = 10;
+      rr(-72, -142, 144, 284, 28, navy);
+      g.restore();
+      rr(-63, -133, 126, 266, 21, "#ffffff");
+      rr(-22, -128, 44, 8, 4, navy);
+      googleG(0, -78, 18);
+      for (let i = 0; i < 5; i++) star(-36 + i * 18, -38, 8.5, 3.8, gold);
+      rr(-46, -10, 92, 30, 15, blue);
+      g.textAlign = "center";
+      g.fillStyle = "#ffffff";
+      const btnSize = fitSize(primary.button, 80, 12);
+      setFont(btnSize, "bold");
+      g.fillText(primary.button, 0, 10);
+      rr(-46, 42, 92, 8, 4, "#e6edf5");
+      rr(-46, 62, 70, 8, 4, "#e6edf5");
+      rr(-46, 82, 82, 8, 4, "#e6edf5");
+      g.restore();
+
+      // ------------------------------------------------
+      // Frase final con subrayado
+      // ------------------------------------------------
+      const sloganX = 395;
+      const sloganY = both ? H - 120 : H - 100;
+      const sloganSize = fitSize(primary.slogan, 520, 40, "bold", "italic", "Georgia, serif");
+      setFont(sloganSize, "bold", "italic", "Georgia, serif");
+      g.textAlign = "center";
+      g.fillStyle = navy;
+      g.fillText(primary.slogan, sloganX, sloganY);
+      const sloganW = g.measureText(primary.slogan).width;
+      g.strokeStyle = blue;
+      g.lineWidth = 5;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(sloganX - sloganW / 2, sloganY + 22);
+      g.quadraticCurveTo(sloganX, sloganY + 4, sloganX + sloganW / 2, sloganY + 20);
+      g.stroke();
+      if (secondary) {
+        const enSloganSize = fitSize(secondary.slogan, 480, 30, "normal", "italic", "Georgia, serif");
+        setFont(enSloganSize, "normal", "italic", "Georgia, serif");
+        g.fillStyle = blue;
+        g.fillText(secondary.slogan, sloganX, sloganY + 54);
       }
 
       return canvas.toDataURL("image/png");
@@ -672,14 +899,22 @@ export default function HomePage() {
     }
   }
 
-  async function handleGeneratePromoImage() {
+  async function handleGeneratePromoImage(language: PromoLanguage = promoLanguage) {
     setPromoError("");
     setPromoImageDataUrl("");
     try {
-      const imageDataUrl = await createPromoImage();
+      const imageDataUrl = await createPromoImage(language);
       setPromoImageDataUrl(imageDataUrl);
     } catch (error) {
       setPromoError(error instanceof Error ? error.message : "No se pudo generar la imagen.");
+    }
+  }
+
+  function changePromoLanguage(language: PromoLanguage) {
+    setPromoLanguage(language);
+    // Si ya hay una imagen generada, se regenera en el idioma elegido.
+    if (promoImageDataUrl) {
+      void handleGeneratePromoImage(language);
     }
   }
 
@@ -687,7 +922,7 @@ export default function HomePage() {
     if (!promoImageDataUrl || !selectedBusiness) return;
     const link = document.createElement("a");
     link.href = promoImageDataUrl;
-    link.download = `resenatap-${selectedBusiness.id}.png`;
+    link.download = `resenatap-${selectedBusiness.id}-${promoLanguage}.png`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1966,14 +2201,34 @@ export default function HomePage() {
             <div className="promo-image-tools">
               <div className="promo-image-heading">
                 <h3>Imagen promocional</h3>
-                <p>Generá una imagen con el nombre del comercio y su QR único. Podés descargarla o imprimirla.</p>
+                <p>Generá un cartel con el nombre del comercio y su QR único, en español, inglés o ambos idiomas. Podés descargarlo o imprimirlo.</p>
+              </div>
+
+              <div className="promo-language-switch" role="radiogroup" aria-label="Idioma del cartel">
+                <span className="promo-language-label">Idioma del cartel</span>
+                <div className="promo-language-options">
+                  {PROMO_LANGUAGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={promoLanguage === option.value}
+                      className={`promo-language-option ${
+                        promoLanguage === option.value ? "active" : ""
+                      }`}
+                      onClick={() => changePromoLanguage(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="material-actions promo-image-actions">
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={handleGeneratePromoImage}
+                  onClick={() => handleGeneratePromoImage()}
                 >
                   Generar imagen
                 </button>
@@ -2629,6 +2884,53 @@ export default function HomePage() {
           color: #728097;
           font-size: 12px;
           line-height: 1.55;
+        }
+
+        .promo-language-switch {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+
+        .promo-language-label {
+          color: #172033;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .promo-language-options {
+          display: inline-flex;
+          overflow: hidden;
+          border: 1px solid #d8e1eb;
+          border-radius: 9px;
+          background: #fff;
+        }
+
+        .promo-language-option {
+          min-height: 34px;
+          border: 0;
+          border-right: 1px solid #d8e1eb;
+          padding: 0 13px;
+          background: #fff;
+          color: #26364d;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .promo-language-option:last-child {
+          border-right: 0;
+        }
+
+        .promo-language-option:hover {
+          background: #f6f8fb;
+        }
+
+        .promo-language-option.active {
+          background: #16804c;
+          color: #fff;
         }
 
         .promo-image-actions {
