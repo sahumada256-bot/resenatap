@@ -678,132 +678,163 @@ export default function HomePage() {
       g.restore();
 
       // ------------------------------------------------
-      // Encabezado: teléfono + logo ReseñaTap
+      // Marca ReseñaTap: chica y discreta, arriba (NO es la protagonista)
       // ------------------------------------------------
-      setFont(88, "bold");
+      setFont(46, "bold");
       const reseñaW = g.measureText("Reseña").width;
       const tapW = g.measureText("Tap").width;
       const logoW = reseñaW + tapW;
-      const iconW = 185;
-      const gap = 22;
-      const groupX = Math.max(205, cx - (iconW + gap + logoW) / 2);
-      const logoX = groupX + iconW + gap;
-      const logoBase = 158;
+      const miniIconW = 56;
+      const miniGap = 14;
+      const brandGroupW = miniIconW + miniGap + logoW;
+      const brandX = cx - brandGroupW / 2;
+      const brandBase = 92;
 
       g.save();
-      g.translate(groupX, 72);
+      g.translate(brandX, 32);
       g.rotate(-0.08);
+      g.scale(0.42, 0.42);
       g.shadowColor = "rgba(9,43,82,0.18)";
       g.shadowBlur = 14;
       g.shadowOffsetY = 6;
       rr(0, 0, 128, 184, 24, navy);
-      g.restore();
-      g.save();
-      g.translate(groupX, 72);
-      g.rotate(-0.08);
+      g.shadowColor = "transparent";
       rr(9, 11, 110, 162, 17, "#ffffff");
       rr(44, 4, 40, 8, 4, navy);
       star(64, 96, 34, 15, gold);
-      g.strokeStyle = blue;
-      g.lineWidth = 7;
-      g.lineCap = "round";
-      for (let i = 0; i < 3; i++) {
-        g.beginPath();
-        g.arc(124, 80, 22 + i * 16, -0.8, 0.8);
-        g.stroke();
-      }
       g.restore();
 
       g.textAlign = "left";
-      setFont(88, "bold");
+      setFont(46, "bold");
       g.fillStyle = navy;
-      g.fillText("Reseña", logoX, logoBase);
+      g.fillText("Reseña", brandX + miniIconW + miniGap, brandBase);
       g.fillStyle = blue;
-      g.fillText("Tap", logoX + reseñaW, logoBase);
+      g.fillText("Tap", brandX + miniIconW + miniGap + reseñaW, brandBase);
 
       g.textAlign = "center";
       g.fillStyle = grey;
-      setFont(25, "normal");
-      g.fillText(primary.tagline, logoX + logoW / 2, logoBase + 42);
+      setFont(20, "normal");
+      g.fillText(primary.tagline, cx, brandBase + 36);
       if (secondary) {
-        setFont(21, "normal");
-        g.fillText(secondary.tagline, logoX + logoW / 2, logoBase + 72);
+        setFont(17, "normal");
+        g.fillText(secondary.tagline, cx, brandBase + 61);
       }
 
       // ------------------------------------------------
-      // Nombre del comercio entre líneas (se adapta a cada negocio)
+      // Medimos el nombre del comercio (protagonista) para armar el layout
       // ------------------------------------------------
-      const bizName = selectedBusiness.name.trim().toUpperCase();
-      const bizY = 322;
-      const bizSpacing = 6;
-      let bizSize = 42;
-      while (bizSize > 16) {
-        setFont(bizSize, "bold");
-        if (measureSpaced(bizName, bizSpacing) <= 560) break;
-        bizSize -= 1;
+      const heroMaxW = 880;
+      const bizName = selectedBusiness.name.trim().replace(/\s+/g, " ").toUpperCase();
+      const words = bizName.split(" ");
+      let heroLines: string[] = [bizName];
+      let heroSize = fitSize(bizName, heroMaxW, 116);
+
+      if (heroSize < 84 && words.length > 1) {
+        // Nombre largo: lo partimos en dos líneas equilibradas y más grandes.
+        let bestSplit = 1;
+        let bestWidth = Infinity;
+        setFont(100, "bold");
+        for (let i = 1; i < words.length; i++) {
+          const w = Math.max(
+            g.measureText(words.slice(0, i).join(" ")).width,
+            g.measureText(words.slice(i).join(" ")).width
+          );
+          if (w < bestWidth) {
+            bestWidth = w;
+            bestSplit = i;
+          }
+        }
+        const twoLines = [words.slice(0, bestSplit).join(" "), words.slice(bestSplit).join(" ")];
+        const twoSize = Math.min(
+          fitSize(twoLines[0], heroMaxW, 108),
+          fitSize(twoLines[1], heroMaxW, 108)
+        );
+        if (twoSize > heroSize) {
+          heroLines = twoLines;
+          heroSize = twoSize;
+        }
       }
-      setFont(bizSize, "bold");
-      const bizW = measureSpaced(bizName, bizSpacing);
-      g.fillStyle = navy;
-      drawSpaced(bizName, cx, bizY, bizSpacing);
-      g.strokeStyle = "#d3dce8";
-      g.lineWidth = 2;
-      g.lineCap = "round";
-      g.beginPath();
-      g.moveTo(110, bizY - bizSize * 0.35);
-      g.lineTo(cx - bizW / 2 - 28, bizY - bizSize * 0.35);
-      g.moveTo(cx + bizW / 2 + 28, bizY - bizSize * 0.35);
-      g.lineTo(W - 110, bizY - bizSize * 0.35);
-      g.stroke();
+
+      const heroLineH = Math.round(heroSize * 1.06);
+      const headlineText = primary.headline.join(" ");
+      const headlineSize = fitSize(headlineText, 800, both ? 50 : 58);
+
+      // Alturas base (sin holgura) para repartir el espacio sobrante si el nombre es corto.
+      const heroTop0 = 196;
+      const heroEnd0 = heroTop0 + Math.round(heroSize * 0.85) + (heroLines.length - 1) * heroLineH;
+      const barY0 = heroEnd0 + 34;
+      const headY0 = barY0 + 20 + headlineSize + 18;
+      const headEnd0 = secondary ? headY0 + 50 : headY0;
+      const starsY0 = headEnd0 + 62;
+      const gy0 = starsY0 + 84;
+      const gEnd0 = gy0 + (secondary ? 44 : 18);
+      const cardY0 = gEnd0 + 28;
+      const slack = Math.max(0, 700 - cardY0);
+
+      const heroTop = heroTop0 + slack * 0.3;
+      const barY = barY0 + slack * 0.4;
+      const headY = headY0 + slack * 0.55;
+      const headEnd = headEnd0 + slack * 0.55;
+      const starsY = starsY0 + slack * 0.7;
+      const gy = gy0 + slack * 0.85;
+      const gEnd = gEnd0 + slack * 0.85;
+      const cardGap = 28 + slack * 0.15;
 
       // ------------------------------------------------
-      // Titular
+      // PROTAGONISTA: nombre del comercio, grande y en negrita
       // ------------------------------------------------
-      const headlineStart = both ? 80 : 92;
-      const headlineSize = Math.min(
-        fitSize(primary.headline[0], 800, headlineStart),
-        fitSize(primary.headline[1], 800, headlineStart)
-      );
-      setFont(headlineSize, "bold");
       g.textAlign = "center";
       g.fillStyle = navy;
-      const h1 = bizY + 108;
-      const h2 = h1 + Math.round(headlineSize * 1.1);
-      g.fillText(primary.headline[0], cx, h1);
-      g.fillText(primary.headline[1], cx, h2);
-      let headlineEnd = h2;
+      setFont(heroSize, "bold");
+      heroLines.forEach((line, i) => {
+        g.fillText(line, cx, heroTop + Math.round(heroSize * 0.85) + i * heroLineH);
+      });
+
+      // Barra de acento con los 4 colores de Google bajo el nombre.
+      {
+        const segW = 54;
+        const barH = 10;
+        const colors = [gBlue, red, gold, green];
+        const startX = cx - (segW * 4 + 6 * 3) / 2;
+        colors.forEach((color, i) => {
+          rr(startX + i * (segW + 6), barY - barH / 2, segW, barH, 5, color);
+        });
+      }
+
+      // ------------------------------------------------
+      // Titular, estrellas y "Dejanos tu reseña en Google" (también protagonistas)
+      // ------------------------------------------------
+      g.textAlign = "center";
+      g.fillStyle = blue;
+      setFont(headlineSize, "bold");
+      g.fillText(headlineText, cx, headY);
       if (secondary) {
         const enText = secondary.headline.join(" ");
-        const enSize = fitSize(enText, 760, 40);
+        const enSize = fitSize(enText, 760, 34);
         setFont(enSize, "bold");
-        g.fillStyle = blue;
-        headlineEnd = h2 + 54;
-        g.fillText(enText, cx, headlineEnd);
+        g.fillStyle = grey;
+        g.fillText(enText, cx, headEnd);
       }
 
-      // Estrellas
-      const starsY = headlineEnd + 60;
-      for (let i = 0; i < 5; i++) star(cx + (i - 2) * 62, starsY, 26, 11.5, gold);
+      // Estrellas grandes
+      for (let i = 0; i < 5; i++) star(cx + (i - 2) * 76, starsY, 33, 14.5, gold);
 
       // Google + texto
-      const gy = starsY + 80;
-      setFont(30, "normal");
+      setFont(36, "bold");
       const gText = primary.google;
       const gTextW = g.measureText(gText).width;
-      const gDiam = 46;
-      const gTotal = gDiam + 16 + gTextW;
+      const gDiam = 54;
+      const gTotal = gDiam + 18 + gTextW;
       const gStart = cx - gTotal / 2;
-      googleG(gStart + gDiam / 2, gy - 10, gDiam / 2);
+      googleG(gStart + gDiam / 2, gy - 12, gDiam / 2);
       g.textAlign = "left";
-      g.fillStyle = grey;
-      g.fillText(gText, gStart + gDiam + 16, gy);
-      let gEnd = gy + 18;
+      g.fillStyle = navy;
+      g.fillText(gText, gStart + gDiam + 18, gy);
       if (secondary) {
-        setFont(23, "normal");
+        setFont(24, "normal");
         g.textAlign = "center";
-        g.fillStyle = "#7d8da3";
-        g.fillText(secondary.google, cx, gy + 36);
-        gEnd = gy + 44;
+        g.fillStyle = grey;
+        g.fillText(secondary.google, cx, gy + 38);
       }
 
       // ------------------------------------------------
@@ -811,7 +842,7 @@ export default function HomePage() {
       // ------------------------------------------------
       const cardSize = both ? 350 : 380;
       const cardX = cx - cardSize / 2;
-      const cardY = gEnd + 28;
+      const cardY = gEnd + cardGap;
       g.save();
       g.shadowColor = "rgba(9,43,82,0.18)";
       g.shadowBlur = 30;

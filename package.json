@@ -19,6 +19,7 @@
     "@types/react": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.31",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.151.0"
   }
 }
