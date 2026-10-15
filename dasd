@@ -1,0 +1,283 @@
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mindex 692fd71..3a52686 100644[m
+[1m--- a/.gitignore[m
+[1m+++ b/.gitignore[m
+[36m@@ -2,4 +2,5 @@[m [mnode_modules[m
+ .next[m
+ .env[m
+ .env.local[m
+[31m-.env*.local[m
+\ No newline at end of file[m
+[32m+[m[32m.env*.local[m
+[32m+[m[32mout/[m
+[1mdiff --git a/app/page.tsx b/app/page.tsx[m
+[1mindex 8e29934..34a7b95 100644[m
+[1m--- a/app/page.tsx[m
+[1m+++ b/app/page.tsx[m
+[36m@@ -678,132 +678,163 @@[m [mexport default function HomePage() {[m
+       g.restore();[m
+ [m
+       // ------------------------------------------------[m
+[31m-      // Encabezado: teléfono + logo ReseñaTap[m
+[32m+[m[32m      // Marca ReseñaTap: chica y discreta, arriba (NO es la protagonista)[m
+       // ------------------------------------------------[m
+[31m-      setFont(88, "bold");[m
+[32m+[m[32m      setFont(46, "bold");[m
+       const reseñaW = g.measureText("Reseña").width;[m
+       const tapW = g.measureText("Tap").width;[m
+       const logoW = reseñaW + tapW;[m
+[31m-      const iconW = 185;[m
+[31m-      const gap = 22;[m
+[31m-      const groupX = Math.max(205, cx - (iconW + gap + logoW) / 2);[m
+[31m-      const logoX = groupX + iconW + gap;[m
+[31m-      const logoBase = 158;[m
+[32m+[m[32m      const miniIconW = 56;[m
+[32m+[m[32m      const miniGap = 14;[m
+[32m+[m[32m      const brandGroupW = miniIconW + miniGap + logoW;[m
+[32m+[m[32m      const brandX = cx - brandGroupW / 2;[m
+[32m+[m[32m      const brandBase = 92;[m
+ [m
+       g.save();[m
+[31m-      g.translate(groupX, 72);[m
+[32m+[m[32m      g.translate(brandX, 32);[m
+       g.rotate(-0.08);[m
+[32m+[m[32m      g.scale(0.42, 0.42);[m
+       g.shadowColor = "rgba(9,43,82,0.18)";[m
+       g.shadowBlur = 14;[m
+       g.shadowOffsetY = 6;[m
+       rr(0, 0, 128, 184, 24, navy);[m
+[31m-      g.restore();[m
+[31m-      g.save();[m
+[31m-      g.translate(groupX, 72);[m
+[31m-      g.rotate(-0.08);[m
+[32m+[m[32m      g.shadowColor = "transparent";[m
+       rr(9, 11, 110, 162, 17, "#ffffff");[m
+       rr(44, 4, 40, 8, 4, navy);[m
+       star(64, 96, 34, 15, gold);[m
+[31m-      g.strokeStyle = blue;[m
+[31m-      g.lineWidth = 7;[m
+[31m-      g.lineCap = "round";[m
+[31m-      for (let i = 0; i < 3; i++) {[m
+[31m-        g.beginPath();[m
+[31m-        g.arc(124, 80, 22 + i * 16, -0.8, 0.8);[m
+[31m-        g.stroke();[m
+[31m-      }[m
+       g.restore();[m
+ [m
+       g.textAlign = "left";[m
+[31m-      setFont(88, "bold");[m
+[32m+[m[32m      setFont(46, "bold");[m
+       g.fillStyle = navy;[m
+[31m-      g.fillText("Reseña", logoX, logoBase);[m
+[32m+[m[32m      g.fillText("Reseña", brandX + miniIconW + miniGap, brandBase);[m
+       g.fillStyle = blue;[m
+[31m-      g.fillText("Tap", logoX + reseñaW, logoBase);[m
+[32m+[m[32m      g.fillText("Tap", brandX + miniIconW + miniGap + reseñaW, brandBase);[m
+ [m
+       g.textAlign = "center";[m
+       g.fillStyle = grey;[m
+[31m-      setFont(25, "normal");[m
+[31m-      g.fillText(primary.tagline, logoX + logoW / 2, logoBase + 42);[m
+[32m+[m[32m      setFont(20, "normal");[m
+[32m+[m[32m      g.fillText(primary.tagline, cx, brandBase + 36);[m
+       if (secondary) {[m
+[31m-        setFont(21, "normal");[m
+[31m-        g.fillText(secondary.tagline, logoX + logoW / 2, logoBase + 72);[m
+[32m+[m[32m        setFont(17, "normal");[m
+[32m+[m[32m        g.fillText(secondary.tagline, cx, brandBase + 61);[m
+       }[m
+ [m
+       // ------------------------------------------------[m
+[31m-      // Nombre del comercio entre líneas (se adapta a cada negocio)[m
+[32m+[m[32m      // Medimos el nombre del comercio (protagonista) para armar el layout[m
+       // ------------------------------------------------[m
+[31m-      const bizName = selectedBusiness.name.trim().toUpperCase();[m
+[31m-      const bizY = 322;[m
+[31m-      const bizSpacing = 6;[m
+[31m-      let bizSize = 42;[m
+[31m-      while (bizSize > 16) {[m
+[31m-        setFont(bizSize, "bold");[m
+[31m-        if (measureSpaced(bizName, bizSpacing) <= 560) break;[m
+[31m-        bizSize -= 1;[m
+[32m+[m[32m      const heroMaxW = 880;[m
+[32m+[m[32m      const bizName = selectedBusiness.name.trim().replace(/\s+/g, " ").toUpperCase();[m
+[32m+[m[32m      const words = bizName.split(" ");[m
+[32m+[m[32m      let heroLines: string[] = [bizName];[m
+[32m+[m[32m      let heroSize = fitSize(bizName, heroMaxW, 116);[m
+[32m+[m
+[32m+[m[32m      if (heroSize < 84 && words.length > 1) {[m
+[32m+[m[32m        // Nombre largo: lo partimos en dos líneas equilibradas y más grandes.[m
+[32m+[m[32m        let bestSplit = 1;[m
+[32m+[m[32m        let bestWidth = Infinity;[m
+[32m+[m[32m        setFont(100, "bold");[m
+[32m+[m[32m        for (let i = 1; i < words.length; i++) {[m
+[32m+[m[32m          const w = Math.max([m
+[32m+[m[32m            g.measureText(words.slice(0, i).join(" ")).width,[m
+[32m+[m[32m            g.measureText(words.slice(i).join(" ")).width[m
+[32m+[m[32m          );[m
+[32m+[m[32m          if (w < bestWidth) {[m
+[32m+[m[32m            bestWidth = w;[m
+[32m+[m[32m            bestSplit = i;[m
+[32m+[m[32m          }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        const twoLines = [words.slice(0, bestSplit).join(" "), words.slice(bestSplit).join(" ")];[m
+[32m+[m[32m        const twoSize = Math.min([m
+[32m+[m[32m          fitSize(twoLines[0], heroMaxW, 108),[m
+[32m+[m[32m          fitSize(twoLines[1], heroMaxW, 108)[m
+[32m+[m[32m        );[m
+[32m+[m[32m        if (twoSize > heroSize) {[m
+[32m+[m[32m          heroLines = twoLines;[m
+[32m+[m[32m          heroSize = twoSize;[m
+[32m+[m[32m        }[m
+       }[m
+[31m-      setFont(bizSize, "bold");[m
+[31m-      const bizW = measureSpaced(bizName, bizSpacing);[m
+[31m-      g.fillStyle = navy;[m
+[31m-      drawSpaced(bizName, cx, bizY, bizSpacing);[m
+[31m-      g.strokeStyle = "#d3dce8";[m
+[31m-      g.lineWidth = 2;[m
+[31m-      g.lineCap = "round";[m
+[31m-      g.beginPath();[m
+[31m-      g.moveTo(110, bizY - bizSize * 0.35);[m
+[31m-      g.lineTo(cx - bizW / 2 - 28, bizY - bizSize * 0.35);[m
+[31m-      g.moveTo(cx + bizW / 2 + 28, bizY - bizSize * 0.35);[m
+[31m-      g.lineTo(W - 110, bizY - bizSize * 0.35);[m
+[31m-      g.stroke();[m
+[32m+[m
+[32m+[m[32m      const heroLineH = Math.round(heroSize * 1.06);[m
+[32m+[m[32m      const headlineText = primary.headline.join(" ");[m
+[32m+[m[32m      const headlineSize = fitSize(headlineText, 800, both ? 50 : 58);[m
+[32m+[m
+[32m+[m[32m      // Alturas base (sin holgura) para repartir el espacio sobrante si el nombre es corto.[m
+[32m+[m[32m      const heroTop0 = 196;[m
+[32m+[m[32m      const heroEnd0 = heroTop0 + Math.round(heroSize * 0.85) + (heroLines.length - 1) * heroLineH;[m
+[32m+[m[32m      const barY0 = heroEnd0 + 34;[m
+[32m+[m[32m      const headY0 = barY0 + 20 + headlineSize + 18;[m
+[32m+[m[32m      const headEnd0 = secondary ? headY0 + 50 : headY0;[m
+[32m+[m[32m      const starsY0 = headEnd0 + 62;[m
+[32m+[m[32m      const gy0 = starsY0 + 84;[m
+[32m+[m[32m      const gEnd0 = gy0 + (secondary ? 44 : 18);[m
+[32m+[m[32m      const cardY0 = gEnd0 + 28;[m
+[32m+[m[32m      const slack = Math.max(0, 700 - cardY0);[m
+[32m+[m
+[32m+[m[32m      const heroTop = heroTop0 + slack * 0.3;[m
+[32m+[m[32m      const barY = barY0 + slack * 0.4;[m
+[32m+[m[32m      const headY = headY0 + slack * 0.55;[m
+[32m+[m[32m      const headEnd = headEnd0 + slack * 0.55;[m
+[32m+[m[32m      const starsY = starsY0 + slack * 0.7;[m
+[32m+[m[32m      const gy = gy0 + slack * 0.85;[m
+[32m+[m[32m      const gEnd = gEnd0 + slack * 0.85;[m
+[32m+[m[32m      const cardGap = 28 + slack * 0.15;[m
+ [m
+       // ------------------------------------------------[m
+[31m-      // Titular[m
+[32m+[m[32m      // PROTAGONISTA: nombre del comercio, grande y en negrita[m
+       // ------------------------------------------------[m
+[31m-      const headlineStart = both ? 80 : 92;[m
+[31m-      const headlineSize = Math.min([m
+[31m-        fitSize(primary.headline[0], 800, headlineStart),[m
+[31m-        fitSize(primary.headline[1], 800, headlineStart)[m
+[31m-      );[m
+[31m-      setFont(headlineSize, "bold");[m
+       g.textAlign = "center";[m
+       g.fillStyle = navy;[m
+[31m-      const h1 = bizY + 108;[m
+[31m-      const h2 = h1 + Math.round(headlineSize * 1.1);[m
+[31m-      g.fillText(primary.headline[0], cx, h1);[m
+[31m-      g.fillText(primary.headline[1], cx, h2);[m
+[31m-      let headlineEnd = h2;[m
+[32m+[m[32m      setFont(heroSize, "bold");[m
+[32m+[m[32m      heroLines.forEach((line, i) => {[m
+[32m+[m[32m        g.fillText(line, cx, heroTop + Math.round(heroSize * 0.85) + i * heroLineH);[m
+[32m+[m[32m      });[m
+[32m+[m
+[32m+[m[32m      // Barra de acento con los 4 colores de Google bajo el nombre.[m
+[32m+[m[32m      {[m
+[32m+[m[32m        const segW = 54;[m
+[32m+[m[32m        const barH = 10;[m
+[32m+[m[32m        const colors = [gBlue, red, gold, green];[m
+[32m+[m[32m        const startX = cx - (segW * 4 + 6 * 3) / 2;[m
+[32m+[m[32m        colors.forEach((color, i) => {[m
+[32m+[m[32m          rr(startX + i * (segW + 6), barY - barH / 2, segW, barH, 5, color);[m
+[32m+[m[32m        });[m
+[32m+[m[32m      }[m
+[32m+[m
+[32m+[m[32m      // ------------------------------------------------[m
+[32m+[m[32m      // Titular, estrellas y "Dejanos tu reseña en Google" (también protagonistas)[m
+[32m+[m[32m      // ------------------------------------------------[m
+[32m+[m[32m      g.textAlign = "center";[m
+[32m+[m[32m      g.fillStyle = blue;[m
+[32m+[m[32m      setFont(headlineSize, "bold");[m
+[32m+[m[32m      g.fillText(headlineText, cx, headY);[m
+       if (secondary) {[m
+         const enText = secondary.headline.join(" ");[m
+[31m-        const enSize = fitSize(enText, 760, 40);[m
+[32m+[m[32m        const enSize = fitSize(enText, 760, 34);[m
+         setFont(enSize, "bold");[m
+[31m-        g.fillStyle = blue;[m
+[31m-        headlineEnd = h2 + 54;[m
+[31m-        g.fillText(enText, cx, headlineEnd);[m
+[32m+[m[32m        g.fillStyle = grey;[m
+[32m+[m[32m        g.fillText(enText, cx, headEnd);[m
+       }[m
+ [m
+[31m-      // Estrellas[m
+[31m-      const starsY = headlineEnd + 60;[m
+[31m-      for (let i = 0; i < 5; i++) star(cx + (i - 2) * 62, starsY, 26, 11.5, gold);[m
+[32m+[m[32m      // Estrellas grandes[m
+[32m+[m[32m      for (let i = 0; i < 5; i++) star(cx + (i - 2) * 76, starsY, 33, 14.5, gold);[m
+ [m
+       // Google + texto[m
+[31m-      const gy = starsY + 80;[m
+[31m-      setFont(30, "normal");[m
+[32m+[m[32m      setFont(36, "bold");[m
+       const gText = primary.google;[m
+       const gTextW = g.measureText(gText).width;[m
+[31m-      const gDiam = 46;[m
+[31m-      const gTotal = gDiam + 16 + gTextW;[m
+[32m+[m[32m      const gDiam = 54;[m
+[32m+[m[32m      const gTotal = gDiam + 18 + gTextW;[m
+       const gStart = cx - gTotal / 2;[m
+[31m-      googleG(gStart + gDiam / 2, gy - 10, gDiam / 2);[m
+[32m+[m[32m      googleG(gStart + gDiam / 2, gy - 12, gDiam / 2);[m
+       g.textAlign = "left";[m
+[31m-      g.fillStyle = grey;[m
+[31m-      g.fillText(gText, gStart + gDiam + 16, gy);[m
+[31m-      let gEnd = gy + 18;[m
+[32m+[m[32m      g.fillStyle = navy;[m
+[32m+[m[32m      g.fillText(gText, gStart + gDiam + 18, gy);[m
+       if (secondary) {[m
+[31m-        setFont(23, "normal");[m
+[32m+[m[32m        setFont(24, "normal");[m
+         g.textAlign = "center";[m
+[31m-        g.fillStyle = "#7d8da3";[m
+[31m-        g.fillText(secondary.google, cx, gy + 36);[m
+[31m-        gEnd = gy + 44;[m
+[32m+[m[32m        g.fillStyle = grey;[m
+[32m+[m[32m        g.fillText(secondary.google, cx, gy + 38);[m
+       }[m
+ [m
+       // ------------------------------------------------[m
+[36m@@ -811,7 +842,7 @@[m [mexport default function HomePage() {[m
+       // ------------------------------------------------[m
+       const cardSize = both ? 350 : 380;[m
+       const cardX = cx - cardSize / 2;[m
+[31m-      const cardY = gEnd + 28;[m
+[32m+[m[32m      const cardY = gEnd + cardGap;[m
+       g.save();[m
+       g.shadowColor = "rgba(9,43,82,0.18)";[m
+       g.shadowBlur = 30;[m
+[1mdiff --git a/package.json b/package.json[m
+[1mindex 7ef595a..1c8f6a0 100644[m
+[1m--- a/package.json[m
+[1m+++ b/package.json[m
+[36m@@ -19,6 +19,7 @@[m
+     "@types/react": "^18",[m
+     "eslint": "^8",[m
+     "eslint-config-next": "14.2.31",[m
+[31m-    "typescript": "^5"[m
+[32m+[m[32m    "typescript": "^5",[m
+[32m+[m[32m    "wrangler": "^4.151.0"[m
+   }[m
+ }[m

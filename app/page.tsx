@@ -178,6 +178,10 @@ export default function HomePage() {
         )}`
       : "";
 
+  // El QR codifica directamente el enlace de reseñas de Google del negocio
+  // (no depende de la web ni de la base de datos de ReseñaTap).
+  const qrTargetUrl = selectedBusiness?.google_review_url ?? "";
+
   // ====================================================
   // CARGA INICIAL
   // ====================================================
@@ -2072,8 +2076,8 @@ export default function HomePage() {
             <h2>{selectedBusiness.name}</h2>
 
             <p className="material-description">
-              Este enlace es el que podés grabar en el chip
-              NFC y también el destino del QR.
+              El QR abre directamente la página de reseñas de
+              Google de este comercio, sin pasar por ReseñaTap.
             </p>
 
             {isEditingBusiness && (
@@ -2159,9 +2163,9 @@ export default function HomePage() {
               <div className="qr-container">
                 <QRCodeSVG
                   id="resenatap-qr"
-                  value={landingUrl}
+                  value={qrTargetUrl}
                   size={220}
-                  level="H"
+                  level={qrTargetUrl.length > 100 ? "M" : "H"}
                   includeMargin
                 />
               </div>
@@ -2204,8 +2208,9 @@ export default function HomePage() {
                 )}
 
                 <p className="material-hint">
-                  Usá este mismo enlace para el QR y para
-                  programar la etiqueta NFC.
+                  Este enlace pasa por ReseñaTap (sirve para la
+                  etiqueta NFC). El QR, en cambio, apunta directo
+                  a Google.
                 </p>
 
                 <div className="material-actions">
