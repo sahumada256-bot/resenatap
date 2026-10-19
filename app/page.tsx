@@ -661,6 +661,11 @@ export default function HomePage() {
         if (!(element instanceof SVGElement)) {
           throw new Error("No encontramos el QR de este comercio. Volvé a abrirlo e intentá nuevamente.");
         }
+        // qrcode.react agrega 4 módulos de margen blanco por lado dentro del SVG.
+        // Lo recortamos al dibujar: la tarjeta blanca ya aporta la zona de silencio.
+        const viewBox = element.getAttribute("viewBox");
+        const cells = viewBox ? Number(viewBox.split(/[\s,]+/)[2]) : 0;
+        const crop = Number.isFinite(cells) && cells > 8 ? 4 / cells : 0;
         const svgText = new XMLSerializer().serializeToString(element);
         const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
         const svgUrl = URL.createObjectURL(svgBlob);
@@ -671,7 +676,7 @@ export default function HomePage() {
           image.onerror = () => reject(new Error("No se pudo preparar el QR para la imagen."));
           image.src = svgUrl;
         });
-        return image;
+        return { image, crop };
       };
 
       const loadLogo = (kind: LinkKind) =>
@@ -688,8 +693,8 @@ export default function HomePage() {
           image.src = source;
         });
 
-      const qrImage1 = await loadQr("resenatap-qr");
-      const qrImage2 = dual ? await loadQr("resenatap-qr-2") : null;
+      const qrAsset1 = await loadQr("resenatap-qr");
+      const qrAsset2 = dual ? await loadQr("resenatap-qr-2") : null;
       const logos: Partial<Record<LinkKind, HTMLImageElement | null>> = {};
       for (const kind of dual ? [kind1, kind2 as LinkKind] : [kind1]) {
         if (!(kind in logos)) logos[kind] = await loadLogo(kind);
@@ -1013,7 +1018,7 @@ export default function HomePage() {
       const gEnd0 = dual ? afterHead0 : ctaY0 + (headlineSec ? 44 : 18);
       const cardGapBase = dual ? 96 : 28;
       const cardY0 = gEnd0 + cardGapBase;
-      const slack = Math.max(0, 700 - cardY0);
+      const slack = Math.max(0, 640 - cardY0);
 
       const heroTop = heroTop0 + slack * 0.3;
       const barY = barY0 + slack * 0.4;
@@ -1096,16 +1101,33 @@ export default function HomePage() {
       // ------------------------------------------------
       // Tarjeta(s) con el/los QR real(es) del comercio
       // ------------------------------------------------
-      const drawQrCard = (x: number, y: number, size: number, image: HTMLImageElement) => {
+      const drawQrCard = (
+        x: number,
+        y: number,
+        size: number,
+        qr: { image: HTMLImageElement; crop: number }
+      ) => {
         g.save();
         g.shadowColor = "rgba(9,43,82,0.18)";
         g.shadowBlur = 30;
         g.shadowOffsetY = 10;
         rr(x, y, size, size, 34, "#ffffff", "#e6edf5", 2);
         g.restore();
-        const pad = Math.round(size * 0.058);
+        const pad = Math.round(size * 0.06);
+        const natural = qr.image.naturalWidth || 220;
+        const cut = natural * qr.crop;
         g.imageSmoothingEnabled = false;
-        g.drawImage(image, x + pad, y + pad, size - pad * 2, size - pad * 2);
+        g.drawImage(
+          qr.image,
+          cut,
+          cut,
+          natural - cut * 2,
+          natural - cut * 2,
+          x + pad,
+          y + pad,
+          size - pad * 2,
+          size - pad * 2
+        );
         g.imageSmoothingEnabled = true;
       };
 
@@ -1113,8 +1135,10 @@ export default function HomePage() {
       let cardBottom: number;
 
       if (!dual) {
-        const cardSize = both ? 350 : 380;
-        drawQrCard(cx - cardSize / 2, cardY, cardSize, qrImage1);
+        // El QR es protagonista: lo más grande posible sin pisar NFC, celular ni frase final.
+        const bottomNeeded = both ? 410 : 375;
+        const cardSize = Math.max(340, Math.min(both ? 440 : 480, H - bottomNeeded - cardY));
+        drawQrCard(cx - cardSize / 2, cardY, cardSize, qrAsset1);
         cardBottom = cardY + cardSize;
 
         // NFC (izquierda) y teléfono (derecha).
@@ -1163,18 +1187,18 @@ export default function HomePage() {
         g.restore();
       } else {
         // Dos destinos: dos QR lado a lado, cada uno con su etiqueta.
-        const cardSize = 430;
-        const gapCards = 40;
+        const cardSize = 456;
+        const gapCards = 36;
         const x1 = cx - gapCards / 2 - cardSize;
         const x2 = cx + gapCards / 2;
-        const pairs: Array<[number, LinkKind, HTMLImageElement]> = [
-          [x1, kind1, qrImage1],
-          [x2, kind2 as LinkKind, qrImage2 as HTMLImageElement],
+        const pairs: Array<[number, LinkKind, { image: HTMLImageElement; crop: number }]> = [
+          [x1, kind1, qrAsset1],
+          [x2, kind2 as LinkKind, qrAsset2 as { image: HTMLImageElement; crop: number }],
         ];
-        for (const [x, kind, image] of pairs) {
+        for (const [x, kind, qr] of pairs) {
           const centerX = x + cardSize / 2;
           drawMark(kind, centerX, cardY - 48, 46, true);
-          drawQrCard(x, cardY, cardSize, image);
+          drawQrCard(x, cardY, cardSize, qr);
 
           const shortText = KIND_TEXTS[kind][pl].short;
           const shortSize = fitSize(shortText, cardSize - 20, 34);
