@@ -1351,7 +1351,9 @@ export default function HomePage() {
       const headlineSize = fitSize(headlineText, 820, both ? 50 : 58);
 
       // Alturas base (sin holgura) para repartir el espacio sobrante si el nombre es corto.
-      const heroTop0 = 196;
+      // Con imagen del comercio la zona superior es un poco más alta: el nombre baja lo justo.
+      const logoShift = logoImage ? (placement === "compact" ? 40 : placement === "medallion" ? 30 : 12) : 0;
+      const heroTop0 = 196 + logoShift;
       const heroEnd0 = heroTop0 + Math.round(heroSize * 0.85) + (heroLines.length - 1) * heroLineH;
       const barY0 = heroEnd0 + 34;
       const headY0 = barY0 + 20 + headlineSize + 18;
@@ -1383,13 +1385,13 @@ export default function HomePage() {
         const opaque = !logo.hasAlpha;
         g.imageSmoothingQuality = "high";
 
-        const topCenterY = 108; // centro de la zona donde antes estaba la marca ReseñaTap
+        const topCenterY = placement === "compact" ? 118 : placement === "medallion" ? 114 : 110; // centro de la zona donde antes estaba la marca ReseñaTap
 
         if (placement === "medallion") {
           // Foto representativa: medallón circular con borde blanco.
           const mx = cx;
-          const my = topCenterY + 4;
-          const radius = 75;
+          const my = topCenterY;
+          const radius = 88;
           g.save();
           g.shadowColor = "rgba(9,43,82,0.22)";
           g.shadowBlur = 22;
@@ -1405,8 +1407,8 @@ export default function HomePage() {
           g.restore();
         } else {
           // Logo: compacto o apaisado/alto, centrado arriba y siempre "contain".
-          const boxW = placement === "compact" ? 150 : 560;
-          const boxH = placement === "compact" ? 150 : 130;
+          const boxW = placement === "compact" ? 190 : 560;
+          const boxH = placement === "compact" ? 190 : 140;
           const centerX = cx;
           const centerY = topCenterY;
           const pad = opaque ? 12 : 0;
