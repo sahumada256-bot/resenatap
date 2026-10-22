@@ -1,7 +1,7 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 // ======================================================
@@ -235,6 +235,328 @@ const PUBLIC_PAGE_TEXTS: Record<
   web: { eyebrow: "BIENVENIDO", title: "Conocé más de nosotros", description: "Visitá nuestro sitio para ver toda la información.", button: "Visitar sitio", footnote: "Vas a continuar en el sitio del comercio." },
 };
 
+// ------------------------------------------------------
+// LOGO / IMAGEN DEL COMERCIO (opcional)
+// Todo se procesa en el navegador: el archivo no se sube a ningún servidor.
+// ------------------------------------------------------
+
+const LOGO_MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
+const LOGO_MAX_PIXELS = 100_000_000; // 100 megapíxeles
+const LOGO_MAX_SIDE = 1600; // se reduce si es más grande (calidad de sobra para el cartel)
+
+type LogoAsset = {
+  dataUrl: string; // PNG (con transparencia) o JPEG (fotos)
+  width: number;
+  height: number;
+  hasAlpha: boolean;
+  kind: "logo" | "photo";
+  fileName: string;
+  detectedType: string;
+  converted: boolean;
+};
+
+type LogoPlacement = "compact" | "header" | "medallion";
+
+const LOGO_PLACEMENT_LABELS: Record<LogoPlacement, string> = {
+  compact: "arriba, en el centro, en lugar de ReseñaTap",
+  header: "arriba, en el centro (formato apaisado), en lugar de ReseñaTap",
+  medallion: "arriba, en el centro (medallón), en lugar de ReseñaTap",
+};
+
+class LogoError extends Error {}
+
+// Elige la ubicación según el tipo de imagen y su proporción.
+function chooseLogoPlacement(logo: LogoAsset): LogoPlacement {
+  if (logo.kind === "photo") return "medallion";
+  const aspect = logo.width / logo.height;
+  return aspect >= 0.6 && aspect <= 1.6 ? "compact" : "header";
+}
+
+// Detecta el tipo REAL del archivo leyendo sus primeros bytes (no confía en la extensión).
+async function sniffImageType(file: Blob): Promise<string | null> {
+  const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+  const ascii = (from: number, to: number) =>
+    String.fromCharCode(...Array.from(head.slice(from, to)));
+
+  if (head[0] === 0x89 && ascii(1, 4) === "PNG") return "png";
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "jpeg";
+  if (ascii(0, 4) === "GIF8") return "gif";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "webp";
+  if (head[0] === 0x42 && head[1] === 0x4d && head.length > 18) {
+    const dibSize = new DataView(head.buffer).getUint32(14, true);
+    if ([12, 40, 52, 56, 64, 108, 124].includes(dibSize)) return "bmp";
+  }
+  if (head[0] === 0 && head[1] === 0 && head[2] === 1 && head[3] === 0) return "ico";
+  if (ascii(4, 8) === "ftyp") {
+    const brand = ascii(8, 12);
+    if (["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"].includes(brand)) return "heic";
+    if (brand === "avif" || brand === "avis") return "avif";
+  }
+  if (
+    (head[0] === 0x49 && head[1] === 0x49 && head[2] === 0x2a && head[3] === 0) ||
+    (head[0] === 0x4d && head[1] === 0x4d && head[2] === 0 && head[3] === 0x2a)
+  ) {
+    return "tiff";
+  }
+
+  const text = new TextDecoder("utf-8").decode(head).replace(/^﻿/, "").trimStart().toLowerCase();
+  if (text.startsWith("<") && text.includes("<svg")) return "svg";
+
+  return null;
+}
+
+// Conversor HEIC/HEIF para navegadores que no los leen (Chrome, Firefox, Edge).
+// Se descarga solo cuando hace falta, con versión fija y verificación de integridad (SRI).
+// El archivo de la persona NO se envía a ningún lado: se convierte localmente.
+const HEIC2ANY_URL = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+const HEIC2ANY_SRI = "sha256-CWPPpQ6eHn5q+SmkCoHj6Jimc/EnDq+mkX3RN+SWgWQ=";
+
+type Heic2Any = (options: { blob: Blob; toType?: string; quality?: number }) => Promise<Blob | Blob[]>;
+
+let heicLoader: Promise<Heic2Any> | null = null;
+
+function loadHeic2any(): Promise<Heic2Any> {
+  const globalHeic = (window as unknown as { heic2any?: Heic2Any }).heic2any;
+  if (globalHeic) return Promise.resolve(globalHeic);
+  if (heicLoader) return heicLoader;
+
+  heicLoader = new Promise<Heic2Any>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = HEIC2ANY_URL;
+    script.integrity = HEIC2ANY_SRI;
+    script.crossOrigin = "anonymous";
+    script.async = true;
+    script.onload = () => {
+      const loaded = (window as unknown as { heic2any?: Heic2Any }).heic2any;
+      if (loaded) resolve(loaded);
+      else {
+        heicLoader = null;
+        reject(new Error("heic2any no disponible"));
+      }
+    };
+    script.onerror = () => {
+      heicLoader = null;
+      reject(new Error("No se pudo cargar el conversor HEIC"));
+    };
+    document.head.appendChild(script);
+  });
+  return heicLoader;
+}
+
+async function convertHeicToPng(file: Blob): Promise<Blob> {
+  const heic2any = await loadHeic2any();
+  const result = await heic2any({ blob: file, toType: "image/png" });
+  return Array.isArray(result) ? result[0] : result;
+}
+
+// SVG: se revisa que no tenga scripts y se le fija un tamaño para poder rasterizarlo.
+async function prepareSvgBlob(file: Blob): Promise<Blob> {
+  const text = await file.text();
+  if (/<script|<foreignobject|javascript:|\son[a-z]+\s*=/i.test(text)) {
+    throw new LogoError("Este SVG contiene scripts o elementos no permitidos. Exportalo como PNG o usá otro archivo.");
+  }
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const root = doc.documentElement;
+  if (doc.querySelector("parsererror") || root.localName.toLowerCase() !== "svg") {
+    throw new LogoError("El SVG está dañado o no se puede leer.");
+  }
+
+  const numeric = (value: string | null) => {
+    if (!value || value.includes("%")) return 0;
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+  let width = numeric(root.getAttribute("width"));
+  let height = numeric(root.getAttribute("height"));
+  if (!width || !height) {
+    const viewBox = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+    if (viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+      width = viewBox[2];
+      height = viewBox[3];
+    } else {
+      width = 512;
+      height = 512;
+    }
+  }
+  const scale = 1024 / Math.max(width, height);
+  root.setAttribute("width", String(Math.round(width * scale)));
+  root.setAttribute("height", String(Math.round(height * scale)));
+  if (!root.getAttribute("viewBox")) root.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  return new Blob([new XMLSerializer().serializeToString(root)], { type: "image/svg+xml" });
+}
+
+type DecodedImage = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  close: () => void;
+};
+
+// Decodifica con el motor del navegador. Respeta la orientación EXIF de las fotos.
+async function decodeImageBlob(blob: Blob, isSvg: boolean): Promise<DecodedImage> {
+  if (!isSvg && typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(blob, {
+        imageOrientation: "from-image",
+      } as unknown as ImageBitmapOptions);
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+    } catch {
+      // Cae al método con <img>.
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("decode"));
+      image.src = url;
+    });
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error("decode");
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight, close: () => undefined };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Mira una versión chica de la imagen para saber si es un logo o una foto.
+function analyzeLogoCanvas(canvas: HTMLCanvasElement): { hasAlpha: boolean; kind: "logo" | "photo" } {
+  const sampleSize = 64;
+  const scale = sampleSize / Math.max(canvas.width, canvas.height);
+  const sw = Math.max(1, Math.round(canvas.width * scale));
+  const sh = Math.max(1, Math.round(canvas.height * scale));
+  const sample = document.createElement("canvas");
+  sample.width = sw;
+  sample.height = sh;
+  const sctx = sample.getContext("2d", { willReadFrequently: true });
+  if (!sctx) return { hasAlpha: false, kind: "logo" };
+  sctx.drawImage(canvas, 0, 0, sw, sh);
+  const data = sctx.getImageData(0, 0, sw, sh).data;
+
+  let transparent = 0;
+  let opaque = 0;
+  const buckets = new Map<number, number>();
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 250) {
+      transparent++;
+      continue;
+    }
+    opaque++;
+    const key = ((data[i] >> 5) << 6) | ((data[i + 1] >> 5) << 3) | (data[i + 2] >> 5);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+
+  const total = sw * sh;
+  const hasAlpha = transparent / total >= 0.01;
+  const topShare = opaque
+    ? Array.from(buckets.values()).sort((a, b) => b - a).slice(0, 6).reduce((sum, n) => sum + n, 0) / opaque
+    : 1;
+
+  const corner = (x0: number, y0: number) => {
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let y = y0; y < y0 + 3 && y < sh; y++) {
+      for (let x = x0; x < x0 + 3 && x < sw; x++) {
+        const i = (y * sw + x) * 4;
+        r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+      }
+    }
+    return [r / n, g / n, b / n];
+  };
+  const corners = [corner(0, 0), corner(sw - 3, 0), corner(0, sh - 3), corner(sw - 3, sh - 3)];
+  const cornersUniform = [0, 1, 2].every((c) => {
+    const values = corners.map((p) => p[c]);
+    return Math.max(...values) - Math.min(...values) <= 24;
+  });
+
+  const isLogo = hasAlpha || topShare >= 0.78 || (cornersUniform && topShare >= 0.6);
+  return { hasAlpha, kind: isLogo ? "logo" : "photo" };
+}
+
+// Valida, convierte (si hace falta) y normaliza la imagen a PNG/JPEG listo para el cartel.
+async function processLogoFile(file: File): Promise<LogoAsset> {
+  if (file.size === 0) throw new LogoError("El archivo está vacío.");
+  if (file.size > LOGO_MAX_FILE_BYTES) {
+    throw new LogoError(
+      `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el máximo permitido es 15 MB.`
+    );
+  }
+
+  const detectedType = await sniffImageType(file);
+  if (!detectedType) {
+    throw new LogoError(
+      "El archivo no es una imagen compatible. Probá con PNG, JPG, WEBP, GIF, BMP, SVG o HEIC."
+    );
+  }
+
+  let blob: Blob = file;
+  let converted = false;
+  const isSvg = detectedType === "svg";
+  if (isSvg) {
+    blob = await prepareSvgBlob(file);
+    converted = true;
+  }
+
+  let decoded: DecodedImage;
+  try {
+    decoded = await decodeImageBlob(blob, isSvg);
+  } catch {
+    if (detectedType === "heic") {
+      try {
+        blob = await convertHeicToPng(file);
+        converted = true;
+        decoded = await decodeImageBlob(blob, false);
+      } catch {
+        throw new LogoError(
+          "No pudimos convertir esta foto HEIC en este navegador. Exportala como JPG o PNG e intentá de nuevo."
+        );
+      }
+    } else if (detectedType === "tiff") {
+      throw new LogoError("Este navegador no puede abrir imágenes TIFF. Convertila a PNG o JPG.");
+    } else if (isSvg) {
+      throw new LogoError("No pudimos dibujar este SVG. Exportalo como PNG e intentá de nuevo.");
+    } else {
+      throw new LogoError("No pudimos leer la imagen: el archivo parece estar dañado o no se puede convertir.");
+    }
+  }
+
+  try {
+    if (decoded.width < 16 || decoded.height < 16) {
+      throw new LogoError("La imagen es demasiado chica (mínimo 16 × 16 píxeles).");
+    }
+    if (decoded.width * decoded.height > LOGO_MAX_PIXELS) {
+      throw new LogoError("La imagen tiene demasiados píxeles. Reducila e intentá de nuevo.");
+    }
+
+    const scale = Math.min(1, LOGO_MAX_SIDE / Math.max(decoded.width, decoded.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(decoded.width * scale));
+    canvas.height = Math.max(1, Math.round(decoded.height * scale));
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new LogoError("El navegador no pudo procesar la imagen.");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
+
+    const { hasAlpha, kind } = analyzeLogoCanvas(canvas);
+    const dataUrl =
+      kind === "photo" && !hasAlpha ? canvas.toDataURL("image/jpeg", 0.92) : canvas.toDataURL("image/png");
+
+    return {
+      dataUrl,
+      width: canvas.width,
+      height: canvas.height,
+      hasAlpha,
+      kind,
+      fileName: file.name,
+      detectedType,
+      converted: converted || !["png", "jpeg"].includes(detectedType),
+    };
+  } finally {
+    decoded.close();
+  }
+}
+
 // ======================================================
 // COMPONENTE PRINCIPAL
 // ======================================================
@@ -270,6 +592,10 @@ export default function HomePage() {
   const [promoImageDataUrl, setPromoImageDataUrl] = useState("");
   const [promoError, setPromoError] = useState("");
   const [promoLanguage, setPromoLanguage] = useState<PromoLanguage>("es");
+  const [promoLogo, setPromoLogo] = useState<LogoAsset | null>(null);
+  const [promoLogoError, setPromoLogoError] = useState("");
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const [promoKind1, setPromoKind1] = useState<LinkKind | "auto">("auto");
   const [promoUrl2, setPromoUrl2] = useState("");
   const [promoKind2, setPromoKind2] = useState<LinkKind | "auto">("auto");
@@ -643,7 +969,8 @@ export default function HomePage() {
   async function createPromoImage(
     language: PromoLanguage,
     kind1: LinkKind,
-    kind2: LinkKind | null
+    kind2: LinkKind | null,
+    logo: LogoAsset | null
   ): Promise<string> {
     if (!selectedBusiness) {
       throw new Error("Seleccioná un comercio para generar su imagen.");
@@ -698,6 +1025,20 @@ export default function HomePage() {
       const logos: Partial<Record<LinkKind, HTMLImageElement | null>> = {};
       for (const kind of dual ? [kind1, kind2 as LinkKind] : [kind1]) {
         if (!(kind in logos)) logos[kind] = await loadLogo(kind);
+      }
+
+      // Imagen del comercio (opcional): si no hay, el cartel sale exactamente como siempre.
+      let logoImage: HTMLImageElement | null = null;
+      let placement: LogoPlacement | null = null;
+      if (logo) {
+        logoImage = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () =>
+            reject(new Error("No se pudo usar la imagen del comercio. Quitala y probá con otra."));
+          image.src = logo.dataUrl;
+        });
+        placement = chooseLogoPlacement(logo);
       }
 
       // Cartel vertical 2:3. No se guarda nada en Supabase.
@@ -926,46 +1267,49 @@ export default function HomePage() {
       g.restore();
 
       // ------------------------------------------------
-      // Marca ReseñaTap: chica y discreta, arriba (NO es la protagonista)
+      // Marca ReseñaTap: chica y discreta, arriba (NO es la protagonista).
+      // Si el comercio sube su logo o imagen, la marca ReseñaTap se quita y queda solo lo del cliente.
       // ------------------------------------------------
-      setFont(46, "bold");
-      const reseñaW = g.measureText("Reseña").width;
-      const tapW = g.measureText("Tap").width;
-      const logoW = reseñaW + tapW;
-      const miniIconW = 56;
-      const miniGap = 14;
-      const brandGroupW = miniIconW + miniGap + logoW;
-      const brandX = cx - brandGroupW / 2;
-      const brandBase = 92;
+      if (!logoImage) {
+        setFont(46, "bold");
+        const reseñaW = g.measureText("Reseña").width;
+        const tapW = g.measureText("Tap").width;
+        const logoW = reseñaW + tapW;
+        const miniIconW = 56;
+        const miniGap = 14;
+        const brandGroupW = miniIconW + miniGap + logoW;
+        const brandX = cx - brandGroupW / 2;
+        const brandBase = 92;
 
-      g.save();
-      g.translate(brandX, 32);
-      g.rotate(-0.08);
-      g.scale(0.42, 0.42);
-      g.shadowColor = "rgba(9,43,82,0.18)";
-      g.shadowBlur = 14;
-      g.shadowOffsetY = 6;
-      rr(0, 0, 128, 184, 24, navy);
-      g.shadowColor = "transparent";
-      rr(9, 11, 110, 162, 17, "#ffffff");
-      rr(44, 4, 40, 8, 4, navy);
-      star(64, 96, 34, 15, gold);
-      g.restore();
+        g.save();
+        g.translate(brandX, 32);
+        g.rotate(-0.08);
+        g.scale(0.42, 0.42);
+        g.shadowColor = "rgba(9,43,82,0.18)";
+        g.shadowBlur = 14;
+        g.shadowOffsetY = 6;
+        rr(0, 0, 128, 184, 24, navy);
+        g.shadowColor = "transparent";
+        rr(9, 11, 110, 162, 17, "#ffffff");
+        rr(44, 4, 40, 8, 4, navy);
+        star(64, 96, 34, 15, gold);
+        g.restore();
 
-      g.textAlign = "left";
-      setFont(46, "bold");
-      g.fillStyle = navy;
-      g.fillText("Reseña", brandX + miniIconW + miniGap, brandBase);
-      g.fillStyle = blue;
-      g.fillText("Tap", brandX + miniIconW + miniGap + reseñaW, brandBase);
+        g.textAlign = "left";
+        setFont(46, "bold");
+        g.fillStyle = navy;
+        g.fillText("Reseña", brandX + miniIconW + miniGap, brandBase);
+        g.fillStyle = blue;
+        g.fillText("Tap", brandX + miniIconW + miniGap + reseñaW, brandBase);
 
-      g.textAlign = "center";
-      g.fillStyle = grey;
-      setFont(20, "normal");
-      g.fillText(taglineText, cx, brandBase + 36);
-      if (taglineSec) {
-        setFont(17, "normal");
-        g.fillText(taglineSec, cx, brandBase + 61);
+        g.textAlign = "center";
+        g.fillStyle = grey;
+        setFont(20, "normal");
+        g.fillText(taglineText, cx, brandBase + 36);
+        if (taglineSec) {
+          setFont(17, "normal");
+          g.fillText(taglineSec, cx, brandBase + 61);
+        }
       }
 
       // ------------------------------------------------
@@ -1028,6 +1372,67 @@ export default function HomePage() {
       const ctaY = ctaY0 + slack * 0.85;
       const gEnd = gEnd0 + slack * 0.85;
       const cardGap = cardGapBase + slack * 0.15;
+
+      // ------------------------------------------------
+      // Imagen / logo del comercio, respetando proporciones (sin estirar ni recortar logos)
+      // ------------------------------------------------
+      if (logo && logoImage && placement) {
+        const img = logoImage;
+        const iw = img.naturalWidth;
+        const ih = img.naturalHeight;
+        const opaque = !logo.hasAlpha;
+        g.imageSmoothingQuality = "high";
+
+        const topCenterY = 108; // centro de la zona donde antes estaba la marca ReseñaTap
+
+        if (placement === "medallion") {
+          // Foto representativa: medallón circular con borde blanco.
+          const mx = cx;
+          const my = topCenterY + 4;
+          const radius = 75;
+          g.save();
+          g.shadowColor = "rgba(9,43,82,0.22)";
+          g.shadowBlur = 22;
+          g.shadowOffsetY = 8;
+          circle(mx, my, radius, "#ffffff");
+          g.restore();
+          g.save();
+          g.beginPath();
+          g.arc(mx, my, radius - 8, 0, Math.PI * 2);
+          g.clip();
+          const coverScale = Math.max(((radius - 8) * 2) / iw, ((radius - 8) * 2) / ih);
+          g.drawImage(img, mx - (iw * coverScale) / 2, my - (ih * coverScale) / 2, iw * coverScale, ih * coverScale);
+          g.restore();
+        } else {
+          // Logo: compacto o apaisado/alto, centrado arriba y siempre "contain".
+          const boxW = placement === "compact" ? 150 : 560;
+          const boxH = placement === "compact" ? 150 : 130;
+          const centerX = cx;
+          const centerY = topCenterY;
+          const pad = opaque ? 12 : 0;
+          const fit = Math.min((boxW - pad * 2) / iw, (boxH - pad * 2) / ih);
+          const dw = iw * fit;
+          const dh = ih * fit;
+          if (opaque) {
+            // Logo con fondo propio (JPG, etc.): tarjeta blanca limpia detrás.
+            g.save();
+            g.shadowColor = "rgba(9,43,82,0.16)";
+            g.shadowBlur = 16;
+            g.shadowOffsetY = 6;
+            rr(centerX - dw / 2 - pad, centerY - dh / 2 - pad, dw + pad * 2, dh + pad * 2, 22, "#ffffff", "#e6edf5", 2);
+            g.restore();
+            g.save();
+            g.beginPath();
+            g.roundRect(centerX - dw / 2, centerY - dh / 2, dw, dh, 12);
+            g.clip();
+            g.drawImage(img, centerX - dw / 2, centerY - dh / 2, dw, dh);
+            g.restore();
+          } else {
+            // Logo con transparencia: se conserva tal cual sobre el cartel.
+            g.drawImage(img, centerX - dw / 2, centerY - dh / 2, dw, dh);
+          }
+        }
+      }
 
       // ------------------------------------------------
       // PROTAGONISTA: nombre del comercio, grande y en negrita
@@ -1249,7 +1654,10 @@ export default function HomePage() {
     }
   }
 
-  async function handleGeneratePromoImage(language: PromoLanguage = promoLanguage) {
+  async function handleGeneratePromoImage(
+    language: PromoLanguage = promoLanguage,
+    logo: LogoAsset | null = promoLogo
+  ) {
     setPromoError("");
     setPromoImageDataUrl("");
 
@@ -1268,11 +1676,42 @@ export default function HomePage() {
       : null;
 
     try {
-      const imageDataUrl = await createPromoImage(language, kind1, kind2);
+      const imageDataUrl = await createPromoImage(language, kind1, kind2, logo);
       setPromoImageDataUrl(imageDataUrl);
     } catch (error) {
       setPromoError(error instanceof Error ? error.message : "No se pudo generar la imagen.");
     }
+  }
+
+  // Imagen o logo del comercio: se valida, se convierte si hace falta y se mantiene
+  // seleccionada hasta que se quite o se cambie de comercio.
+  async function handleLogoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // permite volver a elegir el mismo archivo
+    if (!file) return;
+
+    setPromoLogoError("");
+    setIsProcessingLogo(true);
+    try {
+      const asset = await processLogoFile(file);
+      setPromoLogo(asset);
+      // Si ya había un cartel generado, se actualiza con la nueva imagen.
+      if (promoImageDataUrl) await handleGeneratePromoImage(promoLanguage, asset);
+    } catch (error) {
+      setPromoLogoError(
+        error instanceof LogoError
+          ? error.message
+          : "No pudimos procesar esta imagen. Probá con otro archivo."
+      );
+    } finally {
+      setIsProcessingLogo(false);
+    }
+  }
+
+  function removePromoLogo() {
+    setPromoLogo(null);
+    setPromoLogoError("");
+    if (promoImageDataUrl) void handleGeneratePromoImage(promoLanguage, null);
   }
 
   // El segundo destino se recuerda en este navegador (no se guarda en Supabase).
@@ -1362,6 +1801,8 @@ export default function HomePage() {
     setPromoError("");
     setPromoKind1("auto");
     setPromoKind2("auto");
+    setPromoLogo(null);
+    setPromoLogoError("");
     try {
       setPromoUrl2(
         window.localStorage.getItem(`resenatap-second-url-${businessId}`) ?? ""
@@ -2593,6 +3034,88 @@ export default function HomePage() {
                 <p>Generá un cartel con el nombre del comercio y su QR (hasta 2 destinos), en español, inglés o ambos idiomas. Podés descargarlo o imprimirlo.</p>
               </div>
 
+              <div className="promo-logo-tools">
+                <span className="promo-logo-title">Logo o imagen del comercio (opcional)</span>
+
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*,.heic,.heif,.avif,.svg,.bmp,.gif,.webp,.tif,.tiff,.ico"
+                  onChange={handleLogoSelected}
+                  style={{ display: "none" }}
+                />
+
+                {promoLogo ? (
+                  <div className="promo-logo-preview">
+                    <div className="promo-logo-thumb">
+                      <img src={promoLogo.dataUrl} alt="Vista previa del logo o imagen del comercio" />
+                    </div>
+                    <div className="promo-logo-info">
+                      <span className="promo-logo-name" title={promoLogo.fileName}>
+                        {promoLogo.fileName}
+                      </span>
+                      <span className="promo-logo-meta">
+                        {promoLogo.width} × {promoLogo.height} px ·{" "}
+                        {promoLogo.kind === "photo" ? "foto" : "logo"}
+                        {promoLogo.hasAlpha ? " con transparencia" : ""}
+                        {promoLogo.converted
+                          ? ` · convertido desde ${promoLogo.detectedType.toUpperCase()}`
+                          : ""}
+                      </span>
+                      <span className="promo-logo-meta">
+                        Se ubicará en: {LOGO_PLACEMENT_LABELS[chooseLogoPlacement(promoLogo)]}
+                      </span>
+                      {Math.max(promoLogo.width, promoLogo.height) < 200 && (
+                        <span className="promo-logo-warning">
+                          La imagen es chica y puede verse borrosa en el cartel.
+                        </span>
+                      )}
+                    </div>
+                    <div className="promo-logo-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={isProcessingLogo}
+                        onClick={() => logoInputRef.current?.click()}
+                      >
+                        Reemplazar
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={isProcessingLogo}
+                        onClick={removePromoLogo}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={isProcessingLogo}
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      Agregar logo o imagen del comercio
+                    </button>
+                  </div>
+                )}
+
+                {isProcessingLogo && <p className="promo-destination-help">Procesando imagen...</p>}
+                {promoLogoError && (
+                  <p className="form-message error-message" role="alert">
+                    {promoLogoError}
+                  </p>
+                )}
+                <p className="promo-destination-help">
+                  Con una imagen del comercio, el cartel no muestra la marca ReseñaTap: queda solo lo del
+                  cliente. Acepta PNG, JPG, WEBP, GIF, BMP, SVG, HEIC y más. La imagen se procesa en tu
+                  navegador y no se sube a ningún servidor.
+                </p>
+              </div>
+
               {secondUrlIsValid && (
                 <div style={{ display: "none" }} aria-hidden="true">
                   <QRCodeSVG
@@ -3360,6 +3883,100 @@ export default function HomePage() {
           color: #728097;
           font-size: 12px;
           line-height: 1.55;
+        }
+
+        .promo-logo-tools {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .promo-logo-title {
+          color: #172033;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .promo-logo-preview {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          border: 1px solid #e1e8f0;
+          border-radius: 10px;
+          padding: 10px 12px;
+          background: #fff;
+        }
+
+        .promo-logo-thumb {
+          display: grid;
+          width: 76px;
+          height: 76px;
+          flex: none;
+          place-items: center;
+          overflow: hidden;
+          border: 1px solid #e1e8f0;
+          border-radius: 8px;
+          background-color: #fff;
+          background-image: linear-gradient(45deg, #eef2f7 25%, transparent 25%),
+            linear-gradient(-45deg, #eef2f7 25%, transparent 25%),
+            linear-gradient(45deg, transparent 75%, #eef2f7 75%),
+            linear-gradient(-45deg, transparent 75%, #eef2f7 75%);
+          background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+          background-size: 12px 12px;
+        }
+
+        .promo-logo-thumb img {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+        }
+
+        .promo-logo-info {
+          display: flex;
+          min-width: 0;
+          flex: 1;
+          flex-direction: column;
+          gap: 3px;
+        }
+
+        .promo-logo-name {
+          overflow: hidden;
+          color: #172033;
+          font-size: 12px;
+          font-weight: 700;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .promo-logo-meta {
+          color: #728097;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .promo-logo-warning {
+          color: #b45309;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .promo-logo-actions {
+          display: flex;
+          flex: none;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        @media (max-width: 560px) {
+          .promo-logo-preview {
+            flex-wrap: wrap;
+          }
+
+          .promo-logo-actions {
+            flex-direction: row;
+            width: 100%;
+          }
         }
 
         .promo-destinations {
